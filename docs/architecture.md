@@ -35,7 +35,26 @@ Das Backend definiert Tabellen fuer:
 - branch_assessments
 - agent_runs
 
-Compliance-relevante Aenderungen erzeugen Audit-Log-Eintraege fuer Create/Update, Evidence und Actions.
+Compliance-relevante Aenderungen erzeugen Audit-Log-Eintraege fuer Create/Update,
+Evidence, Actions sowie fuer Mitarbeiter, Qualifikationen und Pflichtenprofile.
+Der Akteur stammt aus der authentifizierten Identitaet, nicht aus dem Payload.
+
+Das Schema wird ueber Alembic versioniert (`backend/alembic/`). `init_db()` fuehrt
+beim Start `alembic upgrade head` aus.
+
+## Authentifizierung und Autorisierung
+
+- `AUTH_MODE=dev`: Identitaet ueber den `X-User-Id`-Header, verweigert unter `APP_ENV=production`.
+- `AUTH_MODE=azure_ad`: Microsoft Entra ID Bearer-Token, Validierung gegen die Tenant-JWKS.
+  Implementiert und getestet, aber noch nicht aktiv (siehe `azure-ad-setup.md`).
+
+Die Berechtigungen stehen in `app/permissions.py` und haengen als
+`Depends(requires(...))` an den Endpunkten. Rollen werden in der `roles`-Tabelle
+gehalten; die Presets im Seed sind fuehrend und werden beim Start abgeglichen.
+
+Personenbezogene Daten werden zusaetzlich mengenmaessig begrenzt: `build_reminders`
+liefert Personal- und Fuhrpark-Erinnerungen nur, wenn der Aufrufer
+`personnel:read` bzw. `fleet:read` besitzt. Das Cockpit nutzt dieselbe Pruefung.
 
 ## Compliance-Workflow
 

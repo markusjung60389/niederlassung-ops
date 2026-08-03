@@ -42,6 +42,39 @@ class UserRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class PrincipalRead(BaseModel):
+    """The caller as resolved by the configured identity provider."""
+
+    user_id: str
+    display_name: str
+    email: str | None = None
+    role_name: str | None = None
+    permissions: list[str]
+    source: str
+
+
+class DevUserRead(BaseModel):
+    """Selectable identity for AUTH_MODE=dev. Never served in azure_ad mode."""
+
+    id: str
+    display_name: str
+    role_name: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AuditLogRead(BaseModel):
+    id: str
+    entity_type: str
+    entity_id: str
+    action: str
+    actor_user_id: str | None = None
+    changes: dict
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class ComplianceEvidenceCreate(BaseModel):
     file_name: str = Field(min_length=1, max_length=240)
     storage_path: str = Field(min_length=1, max_length=400)

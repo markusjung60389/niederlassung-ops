@@ -45,15 +45,18 @@ class User(Base, TimestampMixin):
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
     display_name: Mapped[str] = mapped_column(String(160), nullable=False)
     email: Mapped[str] = mapped_column(String(200), nullable=False, unique=True)
+    # Microsoft Entra ID object id ("oid" claim). Empty until the account signs in via Azure AD.
+    external_id: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
+    is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
     role_id: Mapped[str | None] = mapped_column(ForeignKey("roles.id"))
-    role: Mapped[Role | None] = relationship()
+    role: Mapped[Role | None] = relationship(lazy="joined")
 
 
 class Employee(Base, TimestampMixin):
     __tablename__ = "employees"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
-    branch_id: Mapped[str] = mapped_column(ForeignKey("branches.id"), nullable=False)
+    branch_id: Mapped[str] = mapped_column(ForeignKey("branches.id"), nullable=False, index=True)
     full_name: Mapped[str] = mapped_column(String(160), nullable=False)
     role: Mapped[str] = mapped_column(String(120), nullable=False)
     team: Mapped[str | None] = mapped_column(String(120))
@@ -70,10 +73,10 @@ class EmployeeQualification(Base, TimestampMixin):
     __tablename__ = "employee_qualifications"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
-    employee_id: Mapped[str] = mapped_column(ForeignKey("employees.id"), nullable=False)
+    employee_id: Mapped[str] = mapped_column(ForeignKey("employees.id"), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(180), nullable=False)
     qualification_type: Mapped[str] = mapped_column(String(80), nullable=False)
-    valid_until: Mapped[date | None] = mapped_column(Date)
+    valid_until: Mapped[date | None] = mapped_column(Date, index=True)
     document_id: Mapped[str | None] = mapped_column(ForeignKey("documents.id"))
     reminder_days: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
     employee: Mapped[Employee] = relationship(back_populates="qualifications")
@@ -82,7 +85,7 @@ class EmployeeProfile(Base, TimestampMixin):
     __tablename__ = "employee_profiles"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
-    employee_id: Mapped[str] = mapped_column(ForeignKey("employees.id"), nullable=False)
+    employee_id: Mapped[str] = mapped_column(ForeignKey("employees.id"), nullable=False, unique=True)
     contract_type: Mapped[str] = mapped_column(String(40), default="unbefristet", nullable=False)
     contract_start: Mapped[date | None] = mapped_column(Date)
     contract_end: Mapped[date | None] = mapped_column(Date)
@@ -113,7 +116,7 @@ class Vehicle(Base, TimestampMixin):
     __tablename__ = "vehicles"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
-    branch_id: Mapped[str] = mapped_column(ForeignKey("branches.id"), nullable=False)
+    branch_id: Mapped[str] = mapped_column(ForeignKey("branches.id"), nullable=False, index=True)
     license_plate: Mapped[str] = mapped_column(String(40), nullable=False)
     brand: Mapped[str | None] = mapped_column(String(80))
     model: Mapped[str | None] = mapped_column(String(120))
@@ -197,7 +200,7 @@ class ServiceContract(Base, TimestampMixin):
     account_id: Mapped[str] = mapped_column(ForeignKey("accounts.id"), nullable=False)
     title: Mapped[str] = mapped_column(String(180), nullable=False)
     sla_response_hours: Mapped[int | None] = mapped_column(Integer)
-    next_maintenance_at: Mapped[date | None] = mapped_column(Date)
+    next_maintenance_at: Mapped[date | None] = mapped_column(Date, index=True)
     upsell_hint: Mapped[str | None] = mapped_column(Text)
 
 
@@ -219,15 +222,15 @@ class ComplianceRecord(Base, TimestampMixin):
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     category: Mapped[str] = mapped_column(String(80), nullable=False)
-    branch_id: Mapped[str] = mapped_column(ForeignKey("branches.id"), nullable=False)
+    branch_id: Mapped[str] = mapped_column(ForeignKey("branches.id"), nullable=False, index=True)
     scope_type: Mapped[str] = mapped_column(String(40), default="branch", nullable=False)
     scope_id: Mapped[str | None] = mapped_column(String)
-    status: Mapped[str] = mapped_column(String(40), default="open", nullable=False)
+    status: Mapped[str] = mapped_column(String(40), default="open", nullable=False, index=True)
     priority: Mapped[str] = mapped_column(String(40), default="medium", nullable=False)
-    owner_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    owner_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     legal_basis: Mapped[str] = mapped_column(String(200), nullable=False)
     control_type: Mapped[str] = mapped_column(String(40), nullable=False)
-    due_date: Mapped[date] = mapped_column(Date, nullable=False)
+    due_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     review_date: Mapped[date] = mapped_column(Date, nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     risk_if_missing: Mapped[str | None] = mapped_column(Text)
@@ -249,7 +252,7 @@ class ComplianceEvidence(Base, TimestampMixin):
     __tablename__ = "compliance_evidence"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
-    compliance_record_id: Mapped[str] = mapped_column(ForeignKey("compliance_records.id"), nullable=False)
+    compliance_record_id: Mapped[str] = mapped_column(ForeignKey("compliance_records.id"), nullable=False, index=True)
     file_name: Mapped[str] = mapped_column(String(240), nullable=False)
     storage_path: Mapped[str] = mapped_column(String(400), nullable=False)
     mime_type: Mapped[str | None] = mapped_column(String(120))
@@ -269,13 +272,13 @@ class ComplianceAction(Base, TimestampMixin):
     __tablename__ = "compliance_actions"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
-    compliance_record_id: Mapped[str] = mapped_column(ForeignKey("compliance_records.id"), nullable=False)
+    compliance_record_id: Mapped[str] = mapped_column(ForeignKey("compliance_records.id"), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(180), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     owner_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
-    due_date: Mapped[date] = mapped_column(Date, nullable=False)
+    due_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     priority: Mapped[str] = mapped_column(String(40), default="medium", nullable=False)
-    status: Mapped[str] = mapped_column(String(40), default="open", nullable=False)
+    status: Mapped[str] = mapped_column(String(40), default="open", nullable=False, index=True)
     escalation_level: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     record: Mapped[ComplianceRecord] = relationship(back_populates="actions")
@@ -287,8 +290,8 @@ class Incident(Base, TimestampMixin):
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
     type: Mapped[str] = mapped_column(String(40), nullable=False)
     severity: Mapped[str] = mapped_column(String(40), nullable=False)
-    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    branch_id: Mapped[str] = mapped_column(ForeignKey("branches.id"), nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    branch_id: Mapped[str] = mapped_column(ForeignKey("branches.id"), nullable=False, index=True)
     project_id: Mapped[str | None] = mapped_column(ForeignKey("projects.id"))
     site_id: Mapped[str | None] = mapped_column(ForeignKey("project_sites.id"))
     summary: Mapped[str] = mapped_column(Text, nullable=False)
@@ -327,20 +330,20 @@ class AuditLog(Base):
     __tablename__ = "audit_log"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
-    entity_type: Mapped[str] = mapped_column(String(80), nullable=False)
-    entity_id: Mapped[str] = mapped_column(String, nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    entity_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
     action: Mapped[str] = mapped_column(String(80), nullable=False)
     actor_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
     changes: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False, index=True)
 
 class BranchAssessment(Base, TimestampMixin):
     __tablename__ = "branch_assessments"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
-    branch_id: Mapped[str] = mapped_column(ForeignKey("branches.id"), nullable=False)
+    branch_id: Mapped[str] = mapped_column(ForeignKey("branches.id"), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(180), nullable=False)
-    assessment_date: Mapped[date] = mapped_column(Date, nullable=False)
+    assessment_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     team_structure: Mapped[str | None] = mapped_column(Text)
     customer_clusters: Mapped[str | None] = mapped_column(Text)
     service_portfolio: Mapped[str | None] = mapped_column(Text)
@@ -366,6 +369,3 @@ class AgentRun(Base):
     created_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-
-
-

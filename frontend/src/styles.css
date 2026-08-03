@@ -54,9 +54,39 @@ main { min-width: 0; padding: 22px; }
 .topbar {
   align-items: center;
   display: flex;
+  gap: 14px;
   justify-content: space-between;
   margin-bottom: 18px;
 }
+.topbar > div:first-child { flex: 1; min-width: 0; }
+
+.identity {
+  align-items: center;
+  background: #edf4f7;
+  border-radius: 8px;
+  color: #3d5364;
+  display: flex;
+  flex-shrink: 0;
+  font-size: 13px;
+  gap: 8px;
+  padding: 8px 12px;
+}
+.identity select {
+  background: #ffffff;
+  border: 1px solid #cbd8e1;
+  border-radius: 6px;
+  font-size: 13px;
+  padding: 4px 6px;
+}
+
+.shell.signin {
+  align-content: center;
+  grid-template-columns: 1fr;
+  justify-items: center;
+  padding: 40px 20px;
+}
+.shell.signin .panel { max-width: 520px; width: 100%; }
+.shell.signin .panel > * + * { margin-top: 14px; }
 h1 { font-size: 26px; line-height: 1.1; margin: 0 0 5px; }
 h2 { font-size: 18px; margin: 0; }
 h3 { font-size: 14px; margin: 18px 0 8px; }
