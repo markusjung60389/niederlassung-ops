@@ -5,6 +5,35 @@ Images liegen auf der GitHub Container Registry:
 - `ghcr.io/markusjung60389/niederlassung-ops-backend`
 - `ghcr.io/markusjung60389/niederlassung-ops-frontend`
 
+## Einmalige Einrichtung
+
+Nur beim allerersten Release noetig.
+
+1. **Branch nach `main` bringen.** Der Release-Workflow existiert erst dort,
+   wo er auch liegt - ein Tag auf einem Branch ohne die Workflow-Datei loest
+   nichts aus.
+2. **Workflow-Rechte pruefen.** *Settings → Actions → General → Workflow
+   permissions*: "Read and write permissions". Der Workflow fordert
+   `packages: write` zwar explizit an, eine organisationsweit auf read-only
+   gesetzte Voreinstellung sticht das aber aus.
+3. **Nach dem ersten erfolgreichen Lauf** liegen zwei Packages unter
+   *Profil/Organisation → Packages*. Beide sind zunaechst **privat**:
+   - `niederlassung-ops-backend`
+   - `niederlassung-ops-frontend`
+
+   Je Package unter *Package settings*:
+   - *Manage Actions access* → das Repository mit Rolle **Write** eintragen,
+     damit spaetere Laeufe dasselbe Package aktualisieren duerfen.
+   - *Change visibility* → **Public**, falls ohne Login gezogen werden soll.
+     Bleibt es privat, braucht jeder Zielserver ein Personal Access Token mit
+     `read:packages` und ein `docker login ghcr.io`.
+
+   Die Verknuepfung zum Repository setzt der Workflow selbst ueber das Label
+   `org.opencontainers.image.source`; die Rechte muessen trotzdem einmal
+   vergeben werden.
+
+Kein zusaetzliches Secret erforderlich - `GITHUB_TOKEN` genuegt.
+
 ## Release erstellen
 
 ```bash
@@ -25,11 +54,17 @@ Der Tag startet `.github/workflows/release.yml`:
 Images werden nur aus einem gruenen Baum gebaut. Pushes auf `main` erzeugen
 zusaetzlich `:edge` zum Testen vor dem Tag.
 
-Erzeugte Tags: `1.0.0`, `1.0`, `latest`, `sha-<kurz>`.
+Erzeugte Image-Tags aus dem Git-Tag `v1.0.0`:
 
-**Vor dem ersten Push:** das Package auf ghcr.io ist zunaechst privat. Unter
-*Package settings* die Sichtbarkeit setzen und dem Repository Schreibrechte
-geben, falls die Organisation das nicht automatisch tut.
+| Image-Tag | Woher |
+| --- | --- |
+| `1.0.0` | Semver ohne fuehrendes `v` |
+| `1.0` | Minor-Serie, folgt Patch-Releases |
+| `v1.0.0` | Git-Tag unveraendert, damit `OPS_IMAGE_TAG=v1.0.0` funktioniert |
+| `latest` | nur bei Tags, nicht bei `main` |
+| `sha-<kurz>` | exakter Commit |
+
+Fuer ein Deployment gehoert ein fester Tag in die `.env`, nicht `latest`.
 
 ## Betrieb aus den Images
 
