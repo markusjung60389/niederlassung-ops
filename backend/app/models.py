@@ -1,7 +1,7 @@
 ﻿from datetime import date, datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -83,9 +83,11 @@ class EmployeeQualification(Base, TimestampMixin):
 
 class EmployeeProfile(Base, TimestampMixin):
     __tablename__ = "employee_profiles"
+    # Named explicitly so migrations can address the constraint on PostgreSQL.
+    __table_args__ = (UniqueConstraint("employee_id", name="uq_employee_profiles_employee_id"),)
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
-    employee_id: Mapped[str] = mapped_column(ForeignKey("employees.id"), nullable=False, unique=True)
+    employee_id: Mapped[str] = mapped_column(ForeignKey("employees.id"), nullable=False)
     contract_type: Mapped[str] = mapped_column(String(40), default="unbefristet", nullable=False)
     contract_start: Mapped[date | None] = mapped_column(Date)
     contract_end: Mapped[date | None] = mapped_column(Date)
@@ -143,7 +145,7 @@ class EmployeeReview(Base, TimestampMixin):
     __tablename__ = "employee_reviews"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
-    employee_id: Mapped[str] = mapped_column(ForeignKey("employees.id"), nullable=False)
+    employee_id: Mapped[str] = mapped_column(ForeignKey("employees.id"), nullable=False, index=True)
     review_date: Mapped[date] = mapped_column(Date, nullable=False)
     summary: Mapped[str] = mapped_column(Text, nullable=False)
     development_goals: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
@@ -156,13 +158,17 @@ class Account(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(180), nullable=False)
     account_type: Mapped[str] = mapped_column(String(80), default="existing", nullable=False)
     owner_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    # Nullable so the column can be added to existing rows; required by the API.
+    branch_id: Mapped[str | None] = mapped_column(ForeignKey("branches.id"), index=True)
+    industry: Mapped[str | None] = mapped_column(String(120))
+    notes: Mapped[str | None] = mapped_column(Text)
 
 
 class Opportunity(Base, TimestampMixin):
     __tablename__ = "opportunities"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
-    account_id: Mapped[str] = mapped_column(ForeignKey("accounts.id"), nullable=False)
+    account_id: Mapped[str] = mapped_column(ForeignKey("accounts.id"), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(180), nullable=False)
     offer_status: Mapped[str] = mapped_column(String(80), default="lead", nullable=False)
     probability: Mapped[int] = mapped_column(Integer, default=25, nullable=False)
@@ -177,7 +183,7 @@ class Project(Base, TimestampMixin):
     __tablename__ = "projects"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
-    account_id: Mapped[str | None] = mapped_column(ForeignKey("accounts.id"))
+    account_id: Mapped[str | None] = mapped_column(ForeignKey("accounts.id"), index=True)
     name: Mapped[str] = mapped_column(String(180), nullable=False)
     status: Mapped[str] = mapped_column(String(80), default="active", nullable=False)
     risk_state: Mapped[str] = mapped_column(String(20), default="green", nullable=False)
@@ -187,7 +193,7 @@ class ProjectSite(Base, TimestampMixin):
     __tablename__ = "project_sites"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
-    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), nullable=False)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(180), nullable=False)
     address: Mapped[str | None] = mapped_column(String(240))
     safety_notes: Mapped[str | None] = mapped_column(Text)
@@ -197,7 +203,7 @@ class ServiceContract(Base, TimestampMixin):
     __tablename__ = "service_contracts"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
-    account_id: Mapped[str] = mapped_column(ForeignKey("accounts.id"), nullable=False)
+    account_id: Mapped[str] = mapped_column(ForeignKey("accounts.id"), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(180), nullable=False)
     sla_response_hours: Mapped[int | None] = mapped_column(Integer)
     next_maintenance_at: Mapped[date | None] = mapped_column(Date, index=True)
@@ -208,7 +214,7 @@ class ServiceEvent(Base, TimestampMixin):
     __tablename__ = "service_events"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
-    service_contract_id: Mapped[str] = mapped_column(ForeignKey("service_contracts.id"), nullable=False)
+    service_contract_id: Mapped[str] = mapped_column(ForeignKey("service_contracts.id"), nullable=False, index=True)
     event_type: Mapped[str] = mapped_column(String(80), nullable=False)
     scheduled_at: Mapped[date | None] = mapped_column(Date)
     resolved_at: Mapped[date | None] = mapped_column(Date)
@@ -256,6 +262,7 @@ class ComplianceEvidence(Base, TimestampMixin):
     file_name: Mapped[str] = mapped_column(String(240), nullable=False)
     storage_path: Mapped[str] = mapped_column(String(400), nullable=False)
     mime_type: Mapped[str | None] = mapped_column(String(120))
+    file_size_bytes: Mapped[int | None] = mapped_column(Integer)
     evidence_type: Mapped[str] = mapped_column(String(80), default="other", nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     uploaded_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
@@ -311,6 +318,7 @@ class Document(Base, TimestampMixin):
     file_name: Mapped[str] = mapped_column(String(240), nullable=False)
     storage_path: Mapped[str] = mapped_column(String(400), nullable=False)
     mime_type: Mapped[str | None] = mapped_column(String(120))
+    file_size_bytes: Mapped[int | None] = mapped_column(Integer)
     uploaded_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
 
 

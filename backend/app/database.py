@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Generator
 from pathlib import Path
 
@@ -5,6 +6,8 @@ from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from .config import settings
+
+logger = logging.getLogger(__name__)
 
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 ALEMBIC_INI = BACKEND_ROOT / "alembic.ini"
@@ -47,26 +50,45 @@ def _alembic_config():
     return config
 
 
-def init_db() -> None:
-    """Brings the database up to the current migration head.
+LEGACY_BASELINE_REVISION = "0001_initial"
 
-    A database created by the pre-Alembic ``create_all`` bootstrap is missing
-    the auth columns, so it is reported instead of being silently stamped.
+
+def init_db() -> None:
+    """Brings the database up to the current migration head, keeping all data.
+
+    A database created by the pre-Alembic ``create_all`` bootstrap carries no
+    version marker. Its schema is exactly revision 0001, so it is stamped as
+    such and then migrated forward like any other database. Nothing is dropped
+    and nothing is recreated.
     """
     from alembic import command
+    from sqlalchemy.pool import NullPool
 
-    with engine.connect() as connection:
-        tables = set(inspect(connection).get_table_names())
-        if tables and "alembic_version" not in tables:
-            raise RuntimeError(
-                "The database was created by the pre-Alembic bootstrap and cannot be migrated "
-                "automatically. Recreate it (docker compose down -v, or delete "
-                "backend/remscheid_ops.db) and start again; no production data exists yet."
-            )
-        config = _alembic_config()
-        config.attributes["connection"] = connection
-        command.upgrade(config, "head")
-        connection.commit()
+    # Migrations run on their own engine, without the foreign-key pragma the
+    # application engine installs. SQLite implements ALTER by rebuilding the
+    # table (create, copy, drop, rename), and the intermediate DROP violates
+    # foreign keys from other tables while enforcement is on.
+    migration_engine = create_engine(
+        settings.database_url, poolclass=NullPool, connect_args=connect_args
+    )
+    try:
+        with migration_engine.connect() as connection:
+            tables = set(inspect(connection).get_table_names())
+            config = _alembic_config()
+            config.attributes["connection"] = connection
+
+            if tables and "alembic_version" not in tables:
+                logger.warning(
+                    "Database predates the migration history; adopting it at revision %s and "
+                    "migrating forward. No data is removed.",
+                    LEGACY_BASELINE_REVISION,
+                )
+                command.stamp(config, LEGACY_BASELINE_REVISION)
+
+            command.upgrade(config, "head")
+            connection.commit()
+    finally:
+        migration_engine.dispose()
 
 
 def current_revision() -> str | None:

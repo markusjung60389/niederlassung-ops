@@ -1,0 +1,310 @@
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
+from fastapi.responses import FileResponse
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
+
+from .. import crud, models, permissions, schemas, storage
+from ..auth import Principal, requires
+from ..database import get_db
+from ..deps import audit, ensure_ref, get_or_404, guard_children, snapshot
+from ..serializers import employee_read, profile_read, qualification_read
+
+router = APIRouter(tags=["personnel"])
+
+WriteDep = Annotated[Principal, Depends(requires(permissions.PERSONNEL_WRITE))]
+read_dependency = Depends(requires(permissions.PERSONNEL_READ))
+
+
+# --------------------------------------------------------------------------
+# Employees
+# --------------------------------------------------------------------------
+
+
+@router.get("/api/employees", response_model=list[schemas.EmployeeRead], dependencies=[read_dependency])
+def list_employees(
+    branch_id: str | None = None,
+    limit: Annotated[int, Query(ge=1, le=500)] = 200,
+    db: Session = Depends(get_db),
+) -> list[schemas.EmployeeRead]:
+    query = select(models.Employee).options(
+        selectinload(models.Employee.qualifications), selectinload(models.Employee.profile)
+    )
+    if branch_id:
+        query = query.where(models.Employee.branch_id == branch_id)
+    employees = db.scalars(query.order_by(models.Employee.full_name.asc()).limit(limit)).all()
+    return [employee_read(employee) for employee in employees]
+
+
+@router.post("/api/employees", response_model=schemas.EmployeeRead)
+def create_employee(
+    payload: schemas.EmployeeCreate, principal: WriteDep, db: Session = Depends(get_db)
+) -> schemas.EmployeeRead:
+    ensure_ref(db, models.Branch, payload.branch_id, "branch_id")
+    employee = models.Employee(**payload.model_dump())
+    db.add(employee)
+    db.flush()
+    audit(db, "employee", employee.id, "created", payload.model_dump(mode="json"), principal)
+    db.commit()
+    db.refresh(employee)
+    return employee_read(employee)
+
+
+@router.get(
+    "/api/employees/{employee_id}", response_model=schemas.EmployeeRead, dependencies=[read_dependency]
+)
+def get_employee(employee_id: str, db: Session = Depends(get_db)) -> schemas.EmployeeRead:
+    return employee_read(get_or_404(db, models.Employee, employee_id, "Employee"))
+
+
+@router.patch("/api/employees/{employee_id}", response_model=schemas.EmployeeRead)
+def update_employee(
+    employee_id: str,
+    payload: schemas.EmployeeUpdate,
+    principal: WriteDep,
+    db: Session = Depends(get_db),
+) -> schemas.EmployeeRead:
+    employee = get_or_404(db, models.Employee, employee_id, "Employee")
+    changes = payload.model_dump(exclude_unset=True)
+    before = {field: getattr(employee, field) for field in changes}
+    for field, value in changes.items():
+        setattr(employee, field, value)
+    audit(db, "employee", employee_id, "updated", {"before": before, "after": changes}, principal)
+    db.commit()
+    db.refresh(employee)
+    return employee_read(employee)
+
+
+@router.delete("/api/employees/{employee_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_employee(employee_id: str, principal: WriteDep, db: Session = Depends(get_db)) -> Response:
+    employee = get_or_404(db, models.Employee, employee_id, "Employee")
+    guard_children(
+        db,
+        [
+            (models.Vehicle, "assigned_employee_id", "assigned vehicle(s)"),
+            (models.ComplianceEvidence, "linked_employee_id", "linked evidence item(s)"),
+            (models.EmployeeReview, "employee_id", "review(s)"),
+        ],
+        employee_id,
+    )
+    payload = snapshot(employee)
+    payload["qualifications"] = [snapshot(item) for item in employee.qualifications]
+    if employee.profile:
+        payload["profile"] = snapshot(employee.profile)
+    audit(db, "employee", employee_id, "deleted", payload, principal)
+
+    for qualification in employee.qualifications:
+        db.delete(qualification)
+    if employee.profile:
+        db.delete(employee.profile)
+    db.delete(employee)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# --------------------------------------------------------------------------
+# Qualifications
+# --------------------------------------------------------------------------
+
+
+@router.get(
+    "/api/employee-qualifications",
+    response_model=list[schemas.EmployeeQualificationRead],
+    dependencies=[read_dependency],
+)
+def list_qualifications(
+    employee_id: str | None = None, db: Session = Depends(get_db)
+) -> list[schemas.EmployeeQualificationRead]:
+    query = select(models.EmployeeQualification)
+    if employee_id:
+        query = query.where(models.EmployeeQualification.employee_id == employee_id)
+    return [
+        qualification_read(item)
+        for item in db.scalars(query.order_by(models.EmployeeQualification.valid_until.asc())).all()
+    ]
+
+
+@router.post("/api/employee-qualifications", response_model=schemas.EmployeeQualificationRead)
+def create_qualification(
+    payload: schemas.EmployeeQualificationCreate, principal: WriteDep, db: Session = Depends(get_db)
+) -> schemas.EmployeeQualificationRead:
+    ensure_ref(db, models.Employee, payload.employee_id, "employee_id")
+    ensure_ref(db, models.Document, payload.document_id, "document_id")
+    qualification = models.EmployeeQualification(**payload.model_dump())
+    db.add(qualification)
+    db.flush()
+    audit(
+        db, "employee_qualification", qualification.id, "created", payload.model_dump(mode="json"), principal
+    )
+    db.commit()
+    db.refresh(qualification)
+    return qualification_read(qualification)
+
+
+@router.patch(
+    "/api/employee-qualifications/{qualification_id}", response_model=schemas.EmployeeQualificationRead
+)
+def update_qualification(
+    qualification_id: str,
+    payload: schemas.EmployeeQualificationUpdate,
+    principal: WriteDep,
+    db: Session = Depends(get_db),
+) -> schemas.EmployeeQualificationRead:
+    qualification = get_or_404(db, models.EmployeeQualification, qualification_id, "Qualification")
+    changes = payload.model_dump(exclude_unset=True)
+    ensure_ref(db, models.Document, changes.get("document_id"), "document_id")
+    before = {field: getattr(qualification, field) for field in changes}
+    for field, value in changes.items():
+        setattr(qualification, field, value)
+    audit(
+        db,
+        "employee_qualification",
+        qualification_id,
+        "updated",
+        {"before": before, "after": changes},
+        principal,
+    )
+    db.commit()
+    db.refresh(qualification)
+    return qualification_read(qualification)
+
+
+@router.delete(
+    "/api/employee-qualifications/{qualification_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+def delete_qualification(
+    qualification_id: str, principal: WriteDep, db: Session = Depends(get_db)
+) -> Response:
+    qualification = get_or_404(db, models.EmployeeQualification, qualification_id, "Qualification")
+    audit(db, "employee_qualification", qualification_id, "deleted", snapshot(qualification), principal)
+    db.delete(qualification)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# --------------------------------------------------------------------------
+# Profiles
+# --------------------------------------------------------------------------
+
+
+@router.post("/api/employee-profiles", response_model=schemas.EmployeeProfileRead)
+def upsert_employee_profile(
+    payload: schemas.EmployeeProfileCreate, principal: WriteDep, db: Session = Depends(get_db)
+) -> schemas.EmployeeProfileRead:
+    ensure_ref(db, models.Employee, payload.employee_id, "employee_id")
+    profile = db.scalar(
+        select(models.EmployeeProfile).where(models.EmployeeProfile.employee_id == payload.employee_id)
+    )
+    changes = payload.model_dump()
+    if profile:
+        for field, value in changes.items():
+            setattr(profile, field, value)
+        action = "updated"
+    else:
+        profile = models.EmployeeProfile(**changes)
+        db.add(profile)
+        action = "created"
+    db.flush()
+    audit(db, "employee_profile", profile.id, action, payload.model_dump(mode="json"), principal)
+    db.commit()
+    db.refresh(profile)
+    return profile_read(profile)
+
+
+@router.delete("/api/employee-profiles/{profile_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_employee_profile(
+    profile_id: str, principal: WriteDep, db: Session = Depends(get_db)
+) -> Response:
+    profile = get_or_404(db, models.EmployeeProfile, profile_id, "Profile")
+    audit(db, "employee_profile", profile_id, "deleted", snapshot(profile), principal)
+    db.delete(profile)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# --------------------------------------------------------------------------
+# Reviews and documents
+# --------------------------------------------------------------------------
+
+crud.register(
+    router,
+    "/api/employee-reviews",
+    crud.Crud(
+        model=models.EmployeeReview,
+        create_schema=schemas.EmployeeReviewCreate,
+        update_schema=schemas.EmployeeReviewUpdate,
+        read_schema=schemas.EmployeeReviewRead,
+        entity_type="employee_review",
+        label="Employee review",
+        read_permission=permissions.PERSONNEL_READ,
+        write_permission=permissions.PERSONNEL_WRITE,
+        references={"employee_id": models.Employee},
+        filters={"employee_id": "employee_id"},
+        order_by="review_date",
+        order_desc=True,
+    ),
+)
+
+
+@router.get("/api/documents", response_model=list[schemas.DocumentRead], dependencies=[read_dependency])
+def list_documents(
+    limit: Annotated[int, Query(ge=1, le=500)] = 200, db: Session = Depends(get_db)
+) -> list[models.Document]:
+    return db.scalars(select(models.Document).order_by(models.Document.created_at.desc()).limit(limit)).all()
+
+
+@router.post(
+    "/api/documents", response_model=schemas.DocumentRead, status_code=status.HTTP_201_CREATED
+)
+def upload_document(
+    principal: WriteDep,
+    file: Annotated[UploadFile, File()],
+    title: Annotated[str | None, Form()] = None,
+    db: Session = Depends(get_db),
+) -> models.Document:
+    stored = storage.store_upload(file, category="documents")
+    document = models.Document(
+        title=(title or stored.file_name)[:180],
+        file_name=stored.file_name,
+        storage_path=stored.storage_path,
+        mime_type=stored.mime_type,
+        file_size_bytes=stored.size_bytes,
+        uploaded_by=principal.user_id,
+    )
+    db.add(document)
+    db.flush()
+    audit(
+        db,
+        "document",
+        document.id,
+        "created",
+        {"file_name": stored.file_name, "size_bytes": stored.size_bytes},
+        principal,
+    )
+    db.commit()
+    db.refresh(document)
+    return document
+
+
+@router.get("/api/documents/{document_id}/download", dependencies=[read_dependency])
+def download_document(document_id: str, db: Session = Depends(get_db)) -> FileResponse:
+    document = get_or_404(db, models.Document, document_id, "Document")
+    return FileResponse(
+        storage.resolve(document.storage_path),
+        media_type=document.mime_type or "application/octet-stream",
+        filename=document.file_name,
+    )
+
+
+@router.delete("/api/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_document(document_id: str, principal: WriteDep, db: Session = Depends(get_db)) -> Response:
+    document = get_or_404(db, models.Document, document_id, "Document")
+    guard_children(
+        db, [(models.EmployeeQualification, "document_id", "qualification(s)")], document_id
+    )
+    audit(db, "document", document_id, "deleted", snapshot(document), principal)
+    storage.delete(document.storage_path)
+    db.delete(document)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

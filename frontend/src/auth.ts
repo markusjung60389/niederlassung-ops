@@ -12,15 +12,17 @@
  * for the exact steps, they are deliberately kept in one place.
  */
 
+import { AUTH_MODE as RESOLVED_AUTH_MODE, AZURE_API_SCOPE, AZURE_CLIENT_ID, AZURE_TENANT_ID } from "./runtimeConfig";
+
 export type AuthMode = "dev" | "azure_ad";
 
-export const AUTH_MODE: AuthMode = (import.meta.env.VITE_AUTH_MODE as AuthMode) || "dev";
+export const AUTH_MODE: AuthMode = RESOLVED_AUTH_MODE;
 
 export const AZURE_CONFIG = {
-  tenantId: import.meta.env.VITE_AZURE_TENANT_ID || "",
-  clientId: import.meta.env.VITE_AZURE_CLIENT_ID || "",
+  tenantId: AZURE_TENANT_ID,
+  clientId: AZURE_CLIENT_ID,
   // Scope exposed by the backend app registration, e.g. "api://<api-client-id>/access_as_user".
-  apiScope: import.meta.env.VITE_AZURE_API_SCOPE || "",
+  apiScope: AZURE_API_SCOPE,
   get authority() {
     return `https://login.microsoftonline.com/${this.tenantId}`;
   },

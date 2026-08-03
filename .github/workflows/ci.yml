@@ -4,6 +4,8 @@ on:
   push:
     branches: ["**"]
   pull_request:
+  # Called by the release workflow so images are only built from a green tree.
+  workflow_call:
 
 jobs:
   backend:
@@ -19,18 +21,63 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements.txt
       - run: pip install -r requirements.txt
+
       - name: Tests
         run: python -m pytest -q
+
       - name: Migrations apply to an empty database
         env:
           DATABASE_URL: sqlite:///./ci-check.db
         run: alembic upgrade head
+
       - name: Models and migrations are in sync
         env:
           DATABASE_URL: sqlite:///./ci-check.db
+        # Fails when a model changed without a matching migration.
+        run: alembic check
+
+      - name: Migrations are reversible
+        env:
+          DATABASE_URL: sqlite:///./ci-check.db
         run: |
-          # `alembic check` fails when the models have drifted from the migrations.
+          alembic downgrade base
+          alembic upgrade head
+
+  backend-postgres:
+    # The same suite against the engine used in production; SQLite is forgiving
+    # about constraints that PostgreSQL enforces.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: remscheid_ops
+          POSTGRES_USER: remscheid_ops
+          POSTGRES_PASSWORD: ci-password
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U remscheid_ops"
+          --health-interval 10s --health-timeout 5s --health-retries 10
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DATABASE_URL: postgresql+psycopg://remscheid_ops:ci-password@localhost:5432/remscheid_ops
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: pip install -r requirements.txt
+
+      - name: Migrations apply, reverse and reapply on PostgreSQL
+        run: |
+          alembic upgrade head
           alembic check
+          alembic downgrade base
+          alembic upgrade head
 
   frontend:
     runs-on: ubuntu-latest
@@ -47,3 +94,17 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build
+
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compose files are valid
+        env:
+          POSTGRES_PASSWORD: ci-password
+          DATABASE_URL: postgresql+psycopg://remscheid_ops:ci-password@db:5432/remscheid_ops
+          CORS_ALLOW_ORIGINS: http://localhost:3000
+          PUBLIC_API_BASE_URL: http://localhost:8000
+        run: |
+          docker compose -f docker-compose.yml config >/dev/null
+          docker compose -f docker-compose.release.yml config >/dev/null

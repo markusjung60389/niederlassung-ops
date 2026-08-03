@@ -1,10 +1,20 @@
+# Runs the published images from ghcr.io instead of building locally.
+#
+#   cp .env.example .env        # set POSTGRES_PASSWORD and DATABASE_URL
+#   export OPS_IMAGE_TAG=v1.0.0
+#   docker compose -f docker-compose.release.yml pull
+#   docker compose -f docker-compose.release.yml up -d
+#
+# The backend applies its migrations on start, so upgrading is: change the tag,
+# pull, up. Existing data is migrated forward, never recreated.
+
 x-backend-env: &backend-env
   DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set, see .env.example}
   UPLOADS_DIR: ${UPLOADS_DIR:-/app/uploads}
-  APP_ENV: ${APP_ENV:-development}
+  APP_ENV: ${APP_ENV:-production}
   APP_TIMEZONE: ${APP_TIMEZONE:-Europe/Berlin}
   APP_BRANCH_DEFAULT: ${APP_BRANCH_DEFAULT:-Remscheid}
-  CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+  CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:?CORS_ALLOW_ORIGINS must list the frontend origin}
   AUTH_MODE: ${AUTH_MODE:-dev}
   AUTH_DEV_DEFAULT_USER_ID: ${AUTH_DEV_DEFAULT_USER_ID:-}
   AZURE_TENANT_ID: ${AZURE_TENANT_ID:-}
@@ -21,11 +31,10 @@ x-backend-env: &backend-env
 
 services:
   ops-frontend:
-    build:
-      context: ./frontend
-    # Applied at container start by the entrypoint, not baked into the image.
+    image: ghcr.io/${OPS_IMAGE_OWNER:-markusjung60389}/niederlassung-ops-frontend:${OPS_IMAGE_TAG:-latest}
+    restart: unless-stopped
     environment:
-      API_BASE_URL: ${PUBLIC_API_BASE_URL:-http://localhost:8000}
+      API_BASE_URL: ${PUBLIC_API_BASE_URL:?PUBLIC_API_BASE_URL must point at the backend}
       AUTH_MODE: ${AUTH_MODE:-dev}
       AZURE_TENANT_ID: ${AZURE_TENANT_ID:-}
       AZURE_CLIENT_ID: ${AZURE_FRONTEND_CLIENT_ID:-}
@@ -37,8 +46,8 @@ services:
         condition: service_healthy
 
   ops-backend:
-    build:
-      context: ./backend
+    image: ghcr.io/${OPS_IMAGE_OWNER:-markusjung60389}/niederlassung-ops-backend:${OPS_IMAGE_TAG:-latest}
+    restart: unless-stopped
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     environment: *backend-env
@@ -60,8 +69,6 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-remscheid_ops}
       POSTGRES_USER: ${POSTGRES_USER:-remscheid_ops}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
-    # No host port mapping: the database holds personal data and is only reached
-    # over the compose network. Use `docker compose exec db psql` for a shell.
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -70,11 +77,8 @@ services:
       timeout: 5s
       retries: 10
 
-  # Rolls recurring compliance records over and keeps action escalation levels
-  # in step with how long they are overdue.
   worker:
-    build:
-      context: ./backend
+    image: ghcr.io/${OPS_IMAGE_OWNER:-markusjung60389}/niederlassung-ops-backend:${OPS_IMAGE_TAG:-latest}
     command: ["python", "-m", "app.worker"]
     restart: unless-stopped
     environment: *backend-env

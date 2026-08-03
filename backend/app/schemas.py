@@ -76,12 +76,15 @@ class AuditLogRead(BaseModel):
 
 
 class ComplianceEvidenceCreate(BaseModel):
-    file_name: str = Field(min_length=1, max_length=240)
-    storage_path: str = Field(min_length=1, max_length=400)
-    mime_type: str | None = None
-    evidence_type: str = "other"
+    """Metadata accompanying an upload.
+
+    `file_name` and `storage_path` are deliberately absent: the server derives
+    both from the uploaded file. A client-supplied path would let a caller point
+    a record at any location on disk.
+    """
+
+    evidence_type: str = Field(default="other", max_length=80)
     description: str | None = None
-    uploaded_by: str | None = None
     valid_from: date | None = None
     valid_until: date | None = None
     linked_employee_id: str | None = None
@@ -89,10 +92,22 @@ class ComplianceEvidenceCreate(BaseModel):
     linked_equipment_id: str | None = None
 
 
-class ComplianceEvidenceRead(ComplianceEvidenceCreate):
+class ComplianceEvidenceRead(BaseModel):
     id: str
     compliance_record_id: str
+    file_name: str
+    storage_path: str
+    mime_type: str | None = None
+    file_size_bytes: int | None = None
+    evidence_type: str
+    description: str | None = None
+    uploaded_by: str | None = None
     uploaded_at: datetime
+    valid_from: date | None = None
+    valid_until: date | None = None
+    linked_employee_id: str | None = None
+    linked_project_id: str | None = None
+    linked_equipment_id: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -415,3 +430,330 @@ class AgentReviewResponse(BaseModel):
 
 
 
+
+
+# --------------------------------------------------------------------------
+# Update payloads for resources that previously could not be corrected at all
+# --------------------------------------------------------------------------
+
+
+class EmployeeUpdate(BaseModel):
+    full_name: str | None = Field(default=None, min_length=2, max_length=160)
+    role: str | None = Field(default=None, min_length=2, max_length=120)
+    team: str | None = None
+    start_date: date | None = None
+    first_aider: bool | None = None
+    skills: list[str] | None = None
+    notes: str | None = None
+
+
+class EmployeeQualificationUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=2, max_length=180)
+    qualification_type: str | None = Field(default=None, min_length=2, max_length=80)
+    valid_until: date | None = None
+    document_id: str | None = None
+    reminder_days: int | None = Field(default=None, ge=1, le=365)
+
+
+class VehicleUpdate(BaseModel):
+    license_plate: str | None = Field(default=None, min_length=2, max_length=40)
+    brand: str | None = None
+    model: str | None = None
+    vehicle_type: str | None = None
+    vin: str | None = None
+    first_registration: date | None = None
+    ownership_type: str | None = None
+    assigned_employee_id: str | None = None
+    mileage: int | None = Field(default=None, ge=0)
+    hu_due_date: date | None = None
+    uvv_last_check: date | None = None
+    uvv_next_check: date | None = None
+    service_due_date: date | None = None
+    tire_type: str | None = None
+    tire_change_due_date: date | None = None
+    insurance_valid_until: date | None = None
+    fuel_card_number: str | None = None
+    equipment: list[str] | None = None
+    notes: str | None = None
+
+
+class IncidentUpdate(BaseModel):
+    type: Literal["incident", "near_miss", "deviation"] | None = None
+    severity: Priority | None = None
+    occurred_at: datetime | None = None
+    project_id: str | None = None
+    site_id: str | None = None
+    summary: str | None = Field(default=None, min_length=3)
+    immediate_action: str | None = None
+    root_cause: str | None = None
+    corrective_action: str | None = None
+    preventive_action: str | None = None
+    closed_at: datetime | None = None
+    owner_user_id: str | None = None
+
+
+class BranchAssessmentUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=3, max_length=180)
+    assessment_date: date | None = None
+    team_structure: str | None = None
+    customer_clusters: str | None = None
+    service_portfolio: str | None = None
+    project_types: str | None = None
+    service_share: str | None = None
+    main_problems: str | None = None
+    management_ratings: dict[str, str] | None = None
+    next_actions: list[dict[str, str]] | None = None
+    notes: str | None = None
+
+
+# --------------------------------------------------------------------------
+# Sales and service
+# --------------------------------------------------------------------------
+
+AccountType = Literal["existing", "prospect", "target", "inactive"]
+OfferStatus = Literal["lead", "qualified", "offer_sent", "negotiation", "won", "lost"]
+StrategicRelevance = Literal["low", "medium", "high"]
+ProjectStatus = Literal["planned", "active", "on_hold", "done", "cancelled"]
+RiskState = Literal["green", "yellow", "red"]
+
+
+class AccountCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=180)
+    branch_id: str
+    account_type: AccountType = "existing"
+    owner_user_id: str | None = None
+    industry: str | None = Field(default=None, max_length=120)
+    notes: str | None = None
+
+
+class AccountUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=180)
+    branch_id: str | None = None
+    account_type: AccountType | None = None
+    owner_user_id: str | None = None
+    industry: str | None = Field(default=None, max_length=120)
+    notes: str | None = None
+
+
+class AccountRead(AccountCreate):
+    id: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class OpportunityCreate(BaseModel):
+    account_id: str
+    title: str = Field(min_length=2, max_length=180)
+    offer_status: OfferStatus = "lead"
+    probability: int = Field(default=25, ge=0, le=100)
+    expected_volume: float = Field(default=0, ge=0)
+    next_step: str | None = None
+    follow_up_date: date | None = None
+    owner_user_id: str | None = None
+    strategic_relevance: StrategicRelevance = "medium"
+
+
+class OpportunityUpdate(BaseModel):
+    account_id: str | None = None
+    title: str | None = Field(default=None, min_length=2, max_length=180)
+    offer_status: OfferStatus | None = None
+    probability: int | None = Field(default=None, ge=0, le=100)
+    expected_volume: float | None = Field(default=None, ge=0)
+    next_step: str | None = None
+    follow_up_date: date | None = None
+    owner_user_id: str | None = None
+    strategic_relevance: StrategicRelevance | None = None
+
+
+class OpportunityRead(OpportunityCreate):
+    id: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ProjectCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=180)
+    account_id: str | None = None
+    status: ProjectStatus = "active"
+    risk_state: RiskState = "green"
+
+
+class ProjectUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=180)
+    account_id: str | None = None
+    status: ProjectStatus | None = None
+    risk_state: RiskState | None = None
+
+
+class ProjectRead(ProjectCreate):
+    id: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ProjectSiteCreate(BaseModel):
+    project_id: str
+    name: str = Field(min_length=2, max_length=180)
+    address: str | None = Field(default=None, max_length=240)
+    safety_notes: str | None = None
+
+
+class ProjectSiteUpdate(BaseModel):
+    project_id: str | None = None
+    name: str | None = Field(default=None, min_length=2, max_length=180)
+    address: str | None = Field(default=None, max_length=240)
+    safety_notes: str | None = None
+
+
+class ProjectSiteRead(ProjectSiteCreate):
+    id: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ServiceContractCreate(BaseModel):
+    account_id: str
+    title: str = Field(min_length=2, max_length=180)
+    sla_response_hours: int | None = Field(default=None, ge=1, le=8760)
+    next_maintenance_at: date | None = None
+    upsell_hint: str | None = None
+
+
+class ServiceContractUpdate(BaseModel):
+    account_id: str | None = None
+    title: str | None = Field(default=None, min_length=2, max_length=180)
+    sla_response_hours: int | None = Field(default=None, ge=1, le=8760)
+    next_maintenance_at: date | None = None
+    upsell_hint: str | None = None
+
+
+class ServiceContractRead(ServiceContractCreate):
+    id: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ServiceEventCreate(BaseModel):
+    service_contract_id: str
+    event_type: str = Field(min_length=2, max_length=80)
+    scheduled_at: date | None = None
+    resolved_at: date | None = None
+    summary: str = Field(min_length=3)
+    repeat_issue: bool = False
+
+
+class ServiceEventUpdate(BaseModel):
+    service_contract_id: str | None = None
+    event_type: str | None = Field(default=None, min_length=2, max_length=80)
+    scheduled_at: date | None = None
+    resolved_at: date | None = None
+    summary: str | None = Field(default=None, min_length=3)
+    repeat_issue: bool | None = None
+
+
+class ServiceEventRead(ServiceEventCreate):
+    id: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# --------------------------------------------------------------------------
+# Documents, tasks, reviews
+# --------------------------------------------------------------------------
+
+
+class DocumentRead(BaseModel):
+    id: str
+    title: str
+    file_name: str
+    storage_path: str
+    mime_type: str | None = None
+    file_size_bytes: int | None = None
+    uploaded_by: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DocumentUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=2, max_length=180)
+
+
+class TaskCreate(BaseModel):
+    title: str = Field(min_length=2, max_length=180)
+    owner_user_id: str | None = None
+    status: Literal["open", "in_progress", "blocked", "done", "cancelled"] = "open"
+    due_date: date | None = None
+    source_type: str | None = Field(default=None, max_length=80)
+    source_id: str | None = None
+
+
+class TaskUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=2, max_length=180)
+    owner_user_id: str | None = None
+    status: Literal["open", "in_progress", "blocked", "done", "cancelled"] | None = None
+    due_date: date | None = None
+    source_type: str | None = Field(default=None, max_length=80)
+    source_id: str | None = None
+
+
+class TaskRead(TaskCreate):
+    id: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class EmployeeReviewCreate(BaseModel):
+    employee_id: str
+    review_date: date
+    summary: str = Field(min_length=3)
+    development_goals: list[str] = Field(default_factory=list)
+
+
+class EmployeeReviewUpdate(BaseModel):
+    review_date: date | None = None
+    summary: str | None = Field(default=None, min_length=3)
+    development_goals: list[str] | None = None
+
+
+class EmployeeReviewRead(EmployeeReviewCreate):
+    id: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# --------------------------------------------------------------------------
+# Agent runs
+# --------------------------------------------------------------------------
+
+
+class AgentRunRead(BaseModel):
+    id: str
+    use_case: str
+    source_entity_type: str
+    source_entity_id: str
+    request_payload: dict
+    response_payload: dict | None = None
+    status: str
+    created_by: str | None = None
+    created_at: datetime
+    completed_at: datetime | None = None
+
+    model_config = ConfigDict(from_attributes=True)

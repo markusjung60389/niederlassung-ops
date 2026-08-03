@@ -12,6 +12,8 @@ PERSONNEL_READ = "personnel:read"
 PERSONNEL_WRITE = "personnel:write"
 FLEET_READ = "fleet:read"
 FLEET_WRITE = "fleet:write"
+SALES_READ = "sales:read"
+SALES_WRITE = "sales:write"
 ASSESSMENT_READ = "assessment:read"
 ASSESSMENT_WRITE = "assessment:write"
 INCIDENT_READ = "incident:read"
@@ -26,6 +28,8 @@ ALL_PERMISSIONS = (
     PERSONNEL_WRITE,
     FLEET_READ,
     FLEET_WRITE,
+    SALES_READ,
+    SALES_WRITE,
     ASSESSMENT_READ,
     ASSESSMENT_WRITE,
     INCIDENT_READ,
@@ -51,6 +55,7 @@ ROLE_PRESETS: dict[str, list[str]] = {
         PERSONNEL_READ,
         FLEET_READ,
         ASSESSMENT_READ,
+        SALES_READ,
         AGENT_RUN,
         AUDIT_READ,
     ],

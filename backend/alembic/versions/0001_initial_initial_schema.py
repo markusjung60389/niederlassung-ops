@@ -1,8 +1,8 @@
-"""baseline schema
+"""initial schema
 
-Revision ID: 0001_baseline
+Revision ID: 0001_initial
 Revises: 
-Create Date: 2026-08-03 14:08:45.999439
+Create Date: 2026-08-03 14:38:06.164735
 """
 from typing import Sequence, Union
 
@@ -10,7 +10,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = '0001_baseline'
+revision: str = '0001_initial'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -50,15 +50,10 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['branch_id'], ['branches.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
-    with op.batch_alter_table('employees', schema=None) as batch_op:
-        batch_op.create_index(batch_op.f('ix_employees_branch_id'), ['branch_id'], unique=False)
-
     op.create_table('users',
     sa.Column('id', sa.String(), nullable=False),
     sa.Column('display_name', sa.String(length=160), nullable=False),
     sa.Column('email', sa.String(length=200), nullable=False),
-    sa.Column('external_id', sa.String(length=64), nullable=True),
-    sa.Column('is_active', sa.Boolean(), nullable=False),
     sa.Column('role_id', sa.String(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
@@ -66,9 +61,6 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('email')
     )
-    with op.batch_alter_table('users', schema=None) as batch_op:
-        batch_op.create_index(batch_op.f('ix_users_external_id'), ['external_id'], unique=True)
-
     op.create_table('accounts',
     sa.Column('id', sa.String(), nullable=False),
     sa.Column('name', sa.String(length=180), nullable=False),
@@ -104,11 +96,6 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['actor_user_id'], ['users.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
-    with op.batch_alter_table('audit_log', schema=None) as batch_op:
-        batch_op.create_index(batch_op.f('ix_audit_log_created_at'), ['created_at'], unique=False)
-        batch_op.create_index(batch_op.f('ix_audit_log_entity_id'), ['entity_id'], unique=False)
-        batch_op.create_index(batch_op.f('ix_audit_log_entity_type'), ['entity_type'], unique=False)
-
     op.create_table('branch_assessments',
     sa.Column('id', sa.String(), nullable=False),
     sa.Column('branch_id', sa.String(), nullable=False),
@@ -130,10 +117,6 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['created_by'], ['users.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
-    with op.batch_alter_table('branch_assessments', schema=None) as batch_op:
-        batch_op.create_index(batch_op.f('ix_branch_assessments_assessment_date'), ['assessment_date'], unique=False)
-        batch_op.create_index(batch_op.f('ix_branch_assessments_branch_id'), ['branch_id'], unique=False)
-
     op.create_table('compliance_records',
     sa.Column('id', sa.String(), nullable=False),
     sa.Column('title', sa.String(length=200), nullable=False),
@@ -165,12 +148,6 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['owner_user_id'], ['users.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
-    with op.batch_alter_table('compliance_records', schema=None) as batch_op:
-        batch_op.create_index(batch_op.f('ix_compliance_records_branch_id'), ['branch_id'], unique=False)
-        batch_op.create_index(batch_op.f('ix_compliance_records_due_date'), ['due_date'], unique=False)
-        batch_op.create_index(batch_op.f('ix_compliance_records_owner_user_id'), ['owner_user_id'], unique=False)
-        batch_op.create_index(batch_op.f('ix_compliance_records_status'), ['status'], unique=False)
-
     op.create_table('documents',
     sa.Column('id', sa.String(), nullable=False),
     sa.Column('title', sa.String(length=180), nullable=False),
@@ -212,8 +189,7 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
     sa.ForeignKeyConstraint(['employee_id'], ['employees.id'], ),
-    sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('employee_id')
+    sa.PrimaryKeyConstraint('id')
     )
     op.create_table('employee_reviews',
     sa.Column('id', sa.String(), nullable=False),
@@ -267,9 +243,6 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['branch_id'], ['branches.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
-    with op.batch_alter_table('vehicles', schema=None) as batch_op:
-        batch_op.create_index(batch_op.f('ix_vehicles_branch_id'), ['branch_id'], unique=False)
-
     op.create_table('compliance_actions',
     sa.Column('id', sa.String(), nullable=False),
     sa.Column('compliance_record_id', sa.String(), nullable=False),
@@ -287,11 +260,6 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['owner_user_id'], ['users.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
-    with op.batch_alter_table('compliance_actions', schema=None) as batch_op:
-        batch_op.create_index(batch_op.f('ix_compliance_actions_compliance_record_id'), ['compliance_record_id'], unique=False)
-        batch_op.create_index(batch_op.f('ix_compliance_actions_due_date'), ['due_date'], unique=False)
-        batch_op.create_index(batch_op.f('ix_compliance_actions_status'), ['status'], unique=False)
-
     op.create_table('employee_qualifications',
     sa.Column('id', sa.String(), nullable=False),
     sa.Column('employee_id', sa.String(), nullable=False),
@@ -306,10 +274,6 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['employee_id'], ['employees.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
-    with op.batch_alter_table('employee_qualifications', schema=None) as batch_op:
-        batch_op.create_index(batch_op.f('ix_employee_qualifications_employee_id'), ['employee_id'], unique=False)
-        batch_op.create_index(batch_op.f('ix_employee_qualifications_valid_until'), ['valid_until'], unique=False)
-
     op.create_table('opportunities',
     sa.Column('id', sa.String(), nullable=False),
     sa.Column('account_id', sa.String(), nullable=False),
@@ -350,9 +314,6 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['account_id'], ['accounts.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
-    with op.batch_alter_table('service_contracts', schema=None) as batch_op:
-        batch_op.create_index(batch_op.f('ix_service_contracts_next_maintenance_at'), ['next_maintenance_at'], unique=False)
-
     op.create_table('compliance_evidence',
     sa.Column('id', sa.String(), nullable=False),
     sa.Column('compliance_record_id', sa.String(), nullable=False),
@@ -376,9 +337,6 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['uploaded_by'], ['users.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
-    with op.batch_alter_table('compliance_evidence', schema=None) as batch_op:
-        batch_op.create_index(batch_op.f('ix_compliance_evidence_compliance_record_id'), ['compliance_record_id'], unique=False)
-
     op.create_table('project_sites',
     sa.Column('id', sa.String(), nullable=False),
     sa.Column('project_id', sa.String(), nullable=False),
@@ -426,78 +384,31 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['site_id'], ['project_sites.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
-    with op.batch_alter_table('incidents', schema=None) as batch_op:
-        batch_op.create_index(batch_op.f('ix_incidents_branch_id'), ['branch_id'], unique=False)
-        batch_op.create_index(batch_op.f('ix_incidents_occurred_at'), ['occurred_at'], unique=False)
-
     # ### end Alembic commands ###
 
 
 def downgrade() -> None:
     # ### commands auto generated by Alembic - please adjust! ###
-    with op.batch_alter_table('incidents', schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f('ix_incidents_occurred_at'))
-        batch_op.drop_index(batch_op.f('ix_incidents_branch_id'))
-
     op.drop_table('incidents')
     op.drop_table('service_events')
     op.drop_table('project_sites')
-    with op.batch_alter_table('compliance_evidence', schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f('ix_compliance_evidence_compliance_record_id'))
-
     op.drop_table('compliance_evidence')
-    with op.batch_alter_table('service_contracts', schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f('ix_service_contracts_next_maintenance_at'))
-
     op.drop_table('service_contracts')
     op.drop_table('projects')
     op.drop_table('opportunities')
-    with op.batch_alter_table('employee_qualifications', schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f('ix_employee_qualifications_valid_until'))
-        batch_op.drop_index(batch_op.f('ix_employee_qualifications_employee_id'))
-
     op.drop_table('employee_qualifications')
-    with op.batch_alter_table('compliance_actions', schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f('ix_compliance_actions_status'))
-        batch_op.drop_index(batch_op.f('ix_compliance_actions_due_date'))
-        batch_op.drop_index(batch_op.f('ix_compliance_actions_compliance_record_id'))
-
     op.drop_table('compliance_actions')
-    with op.batch_alter_table('vehicles', schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f('ix_vehicles_branch_id'))
-
     op.drop_table('vehicles')
     op.drop_table('tasks')
     op.drop_table('employee_reviews')
     op.drop_table('employee_profiles')
     op.drop_table('documents')
-    with op.batch_alter_table('compliance_records', schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f('ix_compliance_records_status'))
-        batch_op.drop_index(batch_op.f('ix_compliance_records_owner_user_id'))
-        batch_op.drop_index(batch_op.f('ix_compliance_records_due_date'))
-        batch_op.drop_index(batch_op.f('ix_compliance_records_branch_id'))
-
     op.drop_table('compliance_records')
-    with op.batch_alter_table('branch_assessments', schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f('ix_branch_assessments_branch_id'))
-        batch_op.drop_index(batch_op.f('ix_branch_assessments_assessment_date'))
-
     op.drop_table('branch_assessments')
-    with op.batch_alter_table('audit_log', schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f('ix_audit_log_entity_type'))
-        batch_op.drop_index(batch_op.f('ix_audit_log_entity_id'))
-        batch_op.drop_index(batch_op.f('ix_audit_log_created_at'))
-
     op.drop_table('audit_log')
     op.drop_table('agent_runs')
     op.drop_table('accounts')
-    with op.batch_alter_table('users', schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f('ix_users_external_id'))
-
     op.drop_table('users')
-    with op.batch_alter_table('employees', schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f('ix_employees_branch_id'))
-
     op.drop_table('employees')
     op.drop_table('roles')
     op.drop_table('branches')

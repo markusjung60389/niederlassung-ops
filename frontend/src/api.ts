@@ -1,7 +1,7 @@
 import { getAuthHeaders } from "./auth";
+import { API_BASE } from "./runtimeConfig";
 
-export const API_BASE =
-  import.meta.env.VITE_API_BASE_URL || `${window.location.protocol}//${window.location.hostname}:8000`;
+export { API_BASE };
 
 export class ApiError extends Error {
   readonly status: number;
@@ -82,6 +82,29 @@ export function apiPatch<T>(path: string, payload: unknown): Promise<T> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
+}
+
+export function apiDelete(path: string): Promise<void> {
+  return request<void>(path, { method: "DELETE" });
+}
+
+/** Multipart upload. The Content-Type header is left to the browser so the
+ *  multipart boundary is set correctly. */
+export function apiUpload<T>(path: string, form: FormData): Promise<T> {
+  return request<T>(path, { method: "POST", body: form });
+}
+
+/** Download a protected file: fetched with auth headers, then handed to the browser. */
+export async function downloadFile(path: string, fileName: string): Promise<void> {
+  const response = await fetch(`${API_BASE}${path}`, { headers: await getAuthHeaders() });
+  if (!response.ok) throw new ApiError(response.status, describe(response.status, null));
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
 export function errorMessage(error: unknown): string {

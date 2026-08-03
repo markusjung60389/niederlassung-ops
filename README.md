@@ -1,5 +1,7 @@
 # Remscheid Ops Platform
 
+[![CI](https://github.com/markusjung60389/niederlassung-ops/actions/workflows/ci.yml/badge.svg)](https://github.com/markusjung60389/niederlassung-ops/actions/workflows/ci.yml)
+
 Separate Ops-, Compliance- und Bestandsaufnahme-Anwendung fuer die Niederlassung Remscheid von B.Schmitt mobile.
 
 ## Umfang
@@ -67,25 +69,24 @@ Die Datenbank veroeffentlicht keinen Host-Port. Zugriff bei Bedarf ueber
 ## Datenbankschema
 
 Das Schema wird beim Backend-Start ueber `alembic upgrade head` angelegt und
-aktualisiert. Geseedet werden nur Remscheid sowie die drei Rollen und je ein
-Konto dazu; fachliche Daten werden in der App erfasst.
+aktualisiert. **Bestandsdaten bleiben dabei immer erhalten** - auch eine
+Datenbank aus der Zeit vor Einfuehrung der Migrationen wird uebernommen und
+hochmigriert, nicht neu aufgesetzt.
 
-Eine Datenbank aus der Zeit vor den Migrationen (per `create_all` erzeugt) wird
-beim Start erkannt und mit einer Meldung abgelehnt, statt still ein halbes
-Schema zu benutzen. In dem Fall neu aufsetzen:
-
-```powershell
-docker compose down -v      # bzw. backend/remscheid_ops.db loeschen
-docker compose up --build
-```
+Geseedet werden nur Remscheid sowie die drei Rollen und je ein Konto dazu;
+fachliche Daten werden in der App erfasst.
 
 Neue Migration nach einer Modelaenderung:
 
 ```powershell
 cd backend
 alembic revision --autogenerate -m "beschreibung"
+# erzeugte Datei pruefen, siehe docs/migrations.md
 alembic upgrade head
 ```
+
+Die verbindlichen Regeln dazu stehen in [`docs/migrations.md`](docs/migrations.md).
+`alembic check` laeuft in der CI und blockiert eine Modelaenderung ohne Migration.
 
 ## Lokale Backend-Pruefung
 
@@ -139,18 +140,45 @@ Der Kontext-Endpunkt liefert Hermes die erfassten Bestandsaufnahme-, Compliance-
 Mitarbeiter- und Massnahmendaten. Der Review-Endpunkt speichert Request und
 Response in `agent_runs`.
 
-## Bekannte offene Punkte
+## Betrieb aus veroeffentlichten Images
 
-- Kein DELETE, und PATCH nur fuer Compliance-Records und Massnahmen. Fahrzeuge, Mitarbeiter, Incidents und Bestandsaufnahmen lassen sich nach dem Anlegen nicht mehr korrigieren oder loeschen.
-- `accounts`, `opportunities`, `projects`, `service_contracts` und weitere Tabellen haben keine API. Die Cockpit-Kacheln "Pipeline EUR" und "Service due" stehen deshalb dauerhaft auf 0.
-- `recurrence`, `next_due_at` und `review_date` werden gespeichert, aber von keiner Logik ausgewertet; der `worker` ist ein Platzhalter ohne Funktion.
-- Kein Datei-Upload: `ComplianceEvidence.storage_path` wird vom Client gesetzt und verweist auf nichts.
-- `schemas/compliance-record.schema.json` ist ein zweiter, abweichender Vertrag (camelCase) und wird von keinem Code verwendet. Massgeblich ist `/openapi.json`.
-- Der Hermes-Review ist aus der Oberflaeche nicht erreichbar, und `agent_runs` ist nicht abfragbar.
+Images liegen auf ghcr.io; die Konfiguration wird beim Containerstart injiziert,
+dasselbe Image laeuft daher in jeder Umgebung.
+
+```bash
+cp .env.example .env          # POSTGRES_PASSWORD, DATABASE_URL, CORS_ALLOW_ORIGINS setzen
+export OPS_IMAGE_TAG=v1.0.0
+docker compose -f docker-compose.release.yml pull
+docker compose -f docker-compose.release.yml up -d
+```
+
+Details, Upgrade- und Rollback-Weg: [`docs/release.md`](docs/release.md).
+
+## Hintergrundjobs
+
+Der `worker`-Container fuehrt im Takt von `WORKER_INTERVAL_SECONDS` aus:
+
+- abgeschlossene wiederkehrende Compliance-Records zum naechsten Termin wieder
+  oeffnen (`recurrence` steuert den Abstand)
+- die Eskalationsstufe offener Massnahmen an die Ueberfaelligkeit angleichen
+
+Beide Jobs sind idempotent und schreiben ins Audit-Log.
+
+## Bekannte Einschraenkungen
+
+- Azure AD ist vorbereitet und getestet, aber nicht aktiv: im Frontend fehlt
+  noch die MSAL-Abhaengigkeit. Siehe [`docs/azure-ad-setup.md`](docs/azure-ad-setup.md).
+- Mehrere Niederlassungen sind im Datenmodell vorgesehen, die Oberflaeche
+  arbeitet weiterhin mit der ersten.
+- Der Worker laeuft als Einzelinstanz ohne Sperren; parallele Instanzen sind
+  nicht vorgesehen.
 
 ## Weitere Dokumentation
 
-- [`docs/architecture.md`](docs/architecture.md)
-- [`docs/azure-ad-setup.md`](docs/azure-ad-setup.md)
-- `schemas/compliance-record.schema.json`
+- [`docs/architecture.md`](docs/architecture.md) - Aufbau und Datenfluss
+- [`docs/migrations.md`](docs/migrations.md) - Schemaaenderungen und Datenerhalt
+- [`docs/release.md`](docs/release.md) - Release, ghcr.io, Upgrade, Rollback
+- [`docs/azure-ad-setup.md`](docs/azure-ad-setup.md) - Entra ID aktivieren
+- [`CHANGELOG.md`](CHANGELOG.md)
+- API-Referenz: `/docs` bzw. `/openapi.json` am laufenden Backend
 - Originale Uebergabe: `handover/remscheid-ops-platform`

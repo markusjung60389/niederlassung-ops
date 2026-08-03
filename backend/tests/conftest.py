@@ -8,6 +8,7 @@ import pytest
 # Must be set before app.config is imported anywhere.
 _TMP_DIR = Path(tempfile.mkdtemp(prefix="remscheid-ops-tests-"))
 os.environ["DATABASE_URL"] = f"sqlite:///{_TMP_DIR / 'test.db'}"
+os.environ["UPLOADS_DIR"] = str(_TMP_DIR / "uploads")
 os.environ["AUTH_MODE"] = "dev"
 os.environ["APP_ENV"] = "test"
 os.environ.pop("AUTH_DEV_DEFAULT_USER_ID", None)
@@ -68,4 +69,12 @@ def make_record(client, **overrides) -> dict:
     payload.update(overrides)
     response = client.post("/api/compliance-records", headers=auth(MANAGER), json=payload)
     assert response.status_code == 200, response.text
+    return response.json()
+
+
+def make_account(client, **overrides) -> dict:
+    payload = {"name": f"Kunde {uuid.uuid4().hex[:6]}", "branch_id": BRANCH}
+    payload.update(overrides)
+    response = client.post("/api/accounts", headers=auth(MANAGER), json=payload)
+    assert response.status_code == 201, response.text
     return response.json()

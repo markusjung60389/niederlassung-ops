@@ -1,3 +1,4 @@
+from datetime import timezone
 from typing import Literal
 
 from pydantic import Field, model_validator
@@ -42,6 +43,14 @@ class Settings(BaseSettings):
     # Clock skew tolerance for token validation, in seconds.
     azure_leeway_seconds: int = Field(default=60, ge=0, le=300)
 
+    # --- Uploads ----------------------------------------------------------
+    upload_max_bytes: int = Field(default=25 * 1024 * 1024, ge=1024, le=200 * 1024 * 1024)
+    upload_allowed_extensions: str = ".pdf,.png,.jpg,.jpeg,.gif,.webp,.txt,.csv,.doc,.docx,.xls,.xlsx,.odt,.ods,.msg,.eml"
+
+    # --- Worker -----------------------------------------------------------
+    # Interval for the recurrence roll-over and escalation job.
+    worker_interval_seconds: int = Field(default=900, ge=30, le=86400)
+
     hermes_api_base_url: str | None = None
     hermes_api_key: str | None = None
     hermes_agent_model: str = "hermes-agent"
@@ -56,6 +65,24 @@ class Settings(BaseSettings):
     @property
     def cors_origins(self) -> list[str]:
         return [origin.strip() for origin in self.cors_allow_origins.split(",") if origin.strip()]
+
+    @property
+    def allowed_extensions(self) -> set[str]:
+        return {
+            item.strip().lower() if item.strip().startswith(".") else f".{item.strip().lower()}"
+            for item in self.upload_allowed_extensions.split(",")
+            if item.strip()
+        }
+
+    @property
+    def timezone(self):
+        """Local timezone for due-date arithmetic; falls back to UTC if unknown."""
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+        try:
+            return ZoneInfo(self.app_timezone)
+        except (ZoneInfoNotFoundError, ValueError):
+            return timezone.utc
 
     @property
     def azure_authority(self) -> str:

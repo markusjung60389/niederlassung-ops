@@ -194,3 +194,32 @@ pre { background: #121a22; color: #e8f2f8; border-radius: 8px; overflow: auto; p
   .formGrid { grid-template-columns: 1fr; }
   table { font-size: 14px; }
 }
+
+/* Row and panel actions */
+.panelActions { margin-left: auto; }
+.rowActions { display: flex; flex-wrap: wrap; gap: 6px; }
+.rowActions button, .panelActions button { font-size: 12px; padding: 5px 9px; }
+main button.danger { background: #b03024; }
+main button.danger:hover { background: #8f2017; }
+main button:disabled { cursor: not-allowed; opacity: 0.6; }
+.inlineError { color: #8f2017; display: block; font-size: 12px; margin-top: 4px; }
+
+tr.selectable { cursor: pointer; }
+tr.selectable:hover { background: #f2f7fa; }
+tr.selectable.active { background: #e3eff5; }
+
+.form.inline { background: #f7fafc; border: 1px solid #e2ebf0; margin-top: 12px; padding: 14px; }
+.form.inline h3 { align-items: center; display: flex; gap: 6px; margin-top: 0; }
+
+.agentRun { background: #f7fafc; border-radius: 8px; padding: 12px; }
+.agentRun pre {
+  background: #ffffff;
+  border-radius: 6px;
+  font-size: 12px;
+  margin: 8px 0 0;
+  max-height: 320px;
+  overflow: auto;
+  padding: 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

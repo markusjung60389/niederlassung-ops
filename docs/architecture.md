@@ -10,10 +10,45 @@
 
 ## Stack
 
-- Frontend: React/Vite, ausgeliefert ueber Nginx im Container `ops-frontend`
-- Backend: FastAPI, SQLAlchemy, Pydantic, Container `ops-backend`
-- Datenbank: PostgreSQL 16, Container `db`
-- Worker: Platzhalter-Service fuer spaetere Reminder- oder Agent-Jobs
+- Frontend: React/Vite, ausgeliefert ueber Nginx im Container `ops-frontend`.
+  Die Laufzeitkonfiguration kommt aus `/config.js`, das der Entrypoint bei jedem
+  Start schreibt - dasselbe Image laeuft damit in jeder Umgebung.
+- Backend: FastAPI, SQLAlchemy, Pydantic, Alembic, Container `ops-backend`.
+  Ein Router je Fachbereich unter `app/routers/`.
+- Datenbank: PostgreSQL 16, Container `db`, ohne veroeffentlichten Host-Port
+- Worker: `python -m app.worker`, Container `worker`
+
+## Backend-Aufbau
+
+| Modul | Aufgabe |
+| --- | --- |
+| `auth.py` | Identitaet aufloesen (dev-Header oder Entra-ID-Token), Berechtigungspruefung |
+| `permissions.py` | Berechtigungskatalog und Rollenpresets |
+| `deps.py` | Audit, Referenzpruefung, Kindschutz beim Loeschen, JSON-Konvertierung |
+| `crud.py` | Baukasten fuer die gleichfoermigen Ressourcen (Kunden, Chancen, Projekte, Vertraege, Aufgaben, Gespraeche) |
+| `serializers.py` | ORM zu Response-Schema, Erinnerungsaufbau |
+| `recurrence.py` | Terminarithmetik fuer Wiederholungen und Eskalation |
+| `jobs.py` / `worker.py` | Hintergrundjobs und deren Schleife |
+| `storage.py` | Dateiablage mit serverseitig vergebenem Pfad |
+
+## Hintergrundverarbeitung
+
+Der Worker laeuft im Takt von `WORKER_INTERVAL_SECONDS`:
+
+1. `roll_over_recurring_records` oeffnet abgeschlossene wiederkehrende Records,
+   sobald `next_due_at` erreicht ist, und schiebt Faelligkeit und Review um den
+   konfigurierten Abstand weiter.
+2. `escalate_overdue_actions` leitet die Eskalationsstufe aus der Ueberfaelligkeit
+   ab, statt sie hochzuzaehlen - dadurch ist ein zweiter Lauf folgenlos.
+
+Beide schreiben Audit-Eintraege ohne Akteur, weil sie Systemaktionen sind.
+
+## Dateiablage
+
+Nachweise und Dokumente liegen unter `UPLOADS_DIR` in
+`<kategorie>/<jahr>/<monat>/<uuid><endung>`. Der Pfad wird ausschliesslich
+serverseitig erzeugt, der Anzeigename wird bereinigt und nie als Pfad benutzt.
+Beim Lesen wird geprueft, dass der aufgeloeste Pfad unterhalb der Wurzel liegt.
 
 ## Datenfluss V1
 

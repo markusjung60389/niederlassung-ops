@@ -37,7 +37,7 @@ export type RecordItem = {
   tags: string[];
   due_state: State;
   overdue: boolean;
-  evidence: unknown[];
+  evidence: Evidence[];
   actions: Action[];
 };
 
@@ -158,3 +158,57 @@ export function can(permissions: string[], required: string): boolean {
   if (permissions.includes("*") || permissions.includes(required)) return true;
   return permissions.includes(`${required.split(":")[0]}:*`);
 }
+
+export type Evidence = {
+  id: string;
+  compliance_record_id: string;
+  file_name: string;
+  storage_path: string;
+  mime_type?: string | null;
+  file_size_bytes?: number | null;
+  evidence_type: string;
+  description?: string | null;
+  uploaded_at: string;
+};
+
+export type Account = {
+  id: string;
+  name: string;
+  branch_id: string;
+  account_type: string;
+  owner_user_id?: string | null;
+  industry?: string | null;
+  notes?: string | null;
+};
+
+export type Opportunity = {
+  id: string;
+  account_id: string;
+  title: string;
+  offer_status: string;
+  probability: number;
+  expected_volume: number;
+  next_step?: string | null;
+  follow_up_date?: string | null;
+  strategic_relevance: string;
+};
+
+export type ServiceContract = {
+  id: string;
+  account_id: string;
+  title: string;
+  sla_response_hours?: number | null;
+  next_maintenance_at?: string | null;
+  upsell_hint?: string | null;
+};
+
+export type AgentRun = {
+  id: string;
+  use_case: string;
+  source_entity_id: string;
+  status: string;
+  request_payload: Record<string, unknown>;
+  response_payload?: Record<string, unknown> | null;
+  created_at: string;
+  completed_at?: string | null;
+};
