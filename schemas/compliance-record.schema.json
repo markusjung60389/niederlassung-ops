@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://b-schmitt-mobile.local/schemas/compliance-record.schema.json",
+  "title": "ComplianceRecord",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "title",
+    "category",
+    "branchId",
+    "status",
+    "priority",
+    "ownerUserId",
+    "legalBasis",
+    "controlType",
+    "dueDate",
+    "reviewDate"
+  ],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "title": { "type": "string", "minLength": 3, "maxLength": 200 },
+    "category": {
+      "type": "string",
+      "enum": [
+        "work_safety_organization",
+        "risk_assessment",
+        "training_instruction",
+        "construction_site_coordination",
+        "tools_and_equipment_inspection",
+        "working_time",
+        "first_aid",
+        "occupational_health",
+        "electrical_safety",
+        "incident_and_deviation",
+        "documentation"
+      ]
+    },
+    "branchId": { "type": "string", "minLength": 1 },
+    "scopeType": {
+      "type": "string",
+      "enum": ["branch", "site", "project", "employee", "equipment", "vehicle"]
+    },
+    "scopeId": { "type": ["string", "null"] },
+    "status": {
+      "type": "string",
+      "enum": ["open", "in_progress", "compliant", "non_compliant", "expired", "waived"]
+    },
+    "priority": {
+      "type": "string",
+      "enum": ["low", "medium", "high", "critical"]
+    },
+    "ownerUserId": { "type": "string", "minLength": 1 },
+    "legalBasis": { "type": "string", "minLength": 2, "maxLength": 200 },
+    "controlType": {
+      "type": "string",
+      "enum": ["document", "training", "inspection", "medical", "process", "incident", "approval"]
+    },
+    "description": { "type": "string" },
+    "riskIfMissing": { "type": "string" },
+    "evidenceSummary": { "type": "string" },
+    "recurrence": {
+      "type": "string",
+      "enum": ["one_time", "monthly", "quarterly", "yearly", "event_based"]
+    },
+    "lastCompletedAt": { "type": ["string", "null"], "format": "date-time" },
+    "dueDate": { "type": "string", "format": "date" },
+    "reviewDate": { "type": "string", "format": "date" },
+    "nextDueAt": { "type": ["string", "null"], "format": "date-time" },
+    "approvedBy": { "type": ["string", "null"] },
+    "approvedAt": { "type": ["string", "null"], "format": "date-time" },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "notes": { "type": "string" }
+  }
+}

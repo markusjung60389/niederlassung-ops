@@ -1,0 +1,73 @@
+services:
+  ops-frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: ${PUBLIC_API_BASE_URL:-http://localhost:8000}
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      ops-backend:
+        condition: service_started
+
+  ops-backend:
+    build:
+      context: ./backend
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://remscheid_ops:change-me@db:5432/remscheid_ops}
+      UPLOADS_DIR: ${UPLOADS_DIR:-/app/uploads}
+      APP_ENV: ${APP_ENV:-development}
+      APP_TIMEZONE: ${APP_TIMEZONE:-Europe/Berlin}
+      APP_BRANCH_DEFAULT: ${APP_BRANCH_DEFAULT:-Remscheid}
+      HERMES_API_BASE_URL: ${HERMES_API_BASE_URL:-}
+      HERMES_API_KEY: ${HERMES_API_KEY:-}
+      HERMES_AGENT_MODEL: ${HERMES_AGENT_MODEL:-hermes-agent}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - uploads_data:/app/uploads
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-remscheid_ops}
+      POSTGRES_USER: ${POSTGRES_USER:-remscheid_ops}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  worker:
+    build:
+      context: ./backend
+    command: ["python", "-c", "import time; print('worker ready'); time.sleep(31536000)"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://remscheid_ops:change-me@db:5432/remscheid_ops}
+      UPLOADS_DIR: ${UPLOADS_DIR:-/app/uploads}
+      HERMES_API_BASE_URL: ${HERMES_API_BASE_URL:-}
+      HERMES_API_KEY: ${HERMES_API_KEY:-}
+      HERMES_AGENT_MODEL: ${HERMES_AGENT_MODEL:-hermes-agent}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - uploads_data:/app/uploads
+
+volumes:
+  postgres_data:
+  uploads_data:

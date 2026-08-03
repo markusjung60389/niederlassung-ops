@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+backend/.venv/
+backend/.deps/
+*.db
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Local env
+.env
+
+# Handover/input artifacts
+remscheid-ops-platform-codex-handover.zip
+
+# Source handover copies
+handover/
+remscheid-ops-platform/
+
+# Runtime output
+logs/
