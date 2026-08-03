@@ -3,11 +3,19 @@ name: Release
 # Publishes the backend and frontend images to ghcr.io.
 #   - a v* tag produces the versioned images and a GitHub release
 #   - pushes to main produce :edge for testing before tagging
+#   - a manual run with a version does both: it builds the versioned images and
+#     creates the tag and release itself, for environments where pushing a tag
+#     directly is not possible
 on:
   push:
     tags: ["v*"]
     branches: ["main"]
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release without the leading v, e.g. 1.0.0. Leave empty to only rebuild :edge."
+        required: false
+        type: string
 
 env:
   REGISTRY: ghcr.io
@@ -33,6 +41,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Validate the requested version
+        if: inputs.version != ''
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          # Guards against a malformed input becoming a permanent image tag.
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$'; then
+            echo "::error::'$VERSION' is not a semantic version such as 1.0.0"
+            exit 1
+          fi
+          echo "series=${VERSION%.*}" >> "$GITHUB_ENV"
+
       - uses: docker/setup-buildx-action@v3
 
       - name: Log in to ghcr.io
@@ -54,7 +74,13 @@ jobs:
             # the semver patterns above strip the leading "v".
             type=raw,value=${{ github.ref_name }},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
-            type=raw,value=edge,enable=${{ github.ref == 'refs/heads/main' }}
+            # Manual release: the same set of tags a v* push would produce.
+            type=raw,value=${{ inputs.version }},enable=${{ inputs.version != '' }}
+            type=raw,value=v${{ inputs.version }},enable=${{ inputs.version != '' }}
+            type=raw,value=${{ env.series }},enable=${{ inputs.version != '' }}
+            type=raw,value=latest,enable=${{ inputs.version != '' }}
+            # Plain main push without a version: rolling build only.
+            type=raw,value=edge,enable=${{ github.ref == 'refs/heads/main' && inputs.version == '' }}
             type=sha,format=short
 
       - name: Build and push
@@ -69,23 +95,34 @@ jobs:
 
   release:
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.version != ''
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: Create the GitHub release
+      - name: Create the tag and GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.ref_name }}
+          # On a tag push the tag already exists; on a manual run gh creates it
+          # from --target. A tag created with GITHUB_TOKEN does not retrigger
+          # this workflow, so there is no loop.
+          TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('v{0}', inputs.version) }}
+          TARGET: ${{ github.sha }}
+          REPO: ${{ github.repository }}
         run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists, nothing to do."
+            exit 0
+          fi
           gh release create "$TAG" \
+            --target "$TARGET" \
             --title "$TAG" \
             --notes "Images:
-          - \`ghcr.io/${{ github.repository }}-backend:${TAG#v}\`
-          - \`ghcr.io/${{ github.repository }}-frontend:${TAG#v}\`
+          - \`ghcr.io/${REPO}-backend:${TAG#v}\`
+          - \`ghcr.io/${REPO}-frontend:${TAG#v}\`
 
           Deployment: see \`docker-compose.release.yml\` and \`docs/release.md\`.
           Changes: see \`CHANGELOG.md\`."
