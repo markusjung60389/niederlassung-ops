@@ -10,10 +10,45 @@
 
 ## Stack
 
-- Frontend: React/Vite, ausgeliefert ueber Nginx im Container `ops-frontend`
-- Backend: FastAPI, SQLAlchemy, Pydantic, Container `ops-backend`
-- Datenbank: PostgreSQL 16, Container `db`
-- Worker: Platzhalter-Service fuer spaetere Reminder- oder Agent-Jobs
+- Frontend: React/Vite, ausgeliefert ueber Nginx im Container `ops-frontend`.
+  Die Laufzeitkonfiguration kommt aus `/config.js`, das der Entrypoint bei jedem
+  Start schreibt - dasselbe Image laeuft damit in jeder Umgebung.
+- Backend: FastAPI, SQLAlchemy, Pydantic, Alembic, Container `ops-backend`.
+  Ein Router je Fachbereich unter `app/routers/`.
+- Datenbank: PostgreSQL 16, Container `db`, ohne veroeffentlichten Host-Port
+- Worker: `python -m app.worker`, Container `worker`
+
+## Backend-Aufbau
+
+| Modul | Aufgabe |
+| --- | --- |
+| `auth.py` | Identitaet aufloesen (dev-Header oder Entra-ID-Token), Berechtigungspruefung |
+| `permissions.py` | Berechtigungskatalog und Rollenpresets |
+| `deps.py` | Audit, Referenzpruefung, Kindschutz beim Loeschen, JSON-Konvertierung |
+| `crud.py` | Baukasten fuer die gleichfoermigen Ressourcen (Kunden, Chancen, Projekte, Vertraege, Aufgaben, Gespraeche) |
+| `serializers.py` | ORM zu Response-Schema, Erinnerungsaufbau |
+| `recurrence.py` | Terminarithmetik fuer Wiederholungen und Eskalation |
+| `jobs.py` / `worker.py` | Hintergrundjobs und deren Schleife |
+| `storage.py` | Dateiablage mit serverseitig vergebenem Pfad |
+
+## Hintergrundverarbeitung
+
+Der Worker laeuft im Takt von `WORKER_INTERVAL_SECONDS`:
+
+1. `roll_over_recurring_records` oeffnet abgeschlossene wiederkehrende Records,
+   sobald `next_due_at` erreicht ist, und schiebt Faelligkeit und Review um den
+   konfigurierten Abstand weiter.
+2. `escalate_overdue_actions` leitet die Eskalationsstufe aus der Ueberfaelligkeit
+   ab, statt sie hochzuzaehlen - dadurch ist ein zweiter Lauf folgenlos.
+
+Beide schreiben Audit-Eintraege ohne Akteur, weil sie Systemaktionen sind.
+
+## Dateiablage
+
+Nachweise und Dokumente liegen unter `UPLOADS_DIR` in
+`<kategorie>/<jahr>/<monat>/<uuid><endung>`. Der Pfad wird ausschliesslich
+serverseitig erzeugt, der Anzeigename wird bereinigt und nie als Pfad benutzt.
+Beim Lesen wird geprueft, dass der aufgeloeste Pfad unterhalb der Wurzel liegt.
 
 ## Datenfluss V1
 
@@ -35,7 +70,26 @@ Das Backend definiert Tabellen fuer:
 - branch_assessments
 - agent_runs
 
-Compliance-relevante Aenderungen erzeugen Audit-Log-Eintraege fuer Create/Update, Evidence und Actions.
+Compliance-relevante Aenderungen erzeugen Audit-Log-Eintraege fuer Create/Update,
+Evidence, Actions sowie fuer Mitarbeiter, Qualifikationen und Pflichtenprofile.
+Der Akteur stammt aus der authentifizierten Identitaet, nicht aus dem Payload.
+
+Das Schema wird ueber Alembic versioniert (`backend/alembic/`). `init_db()` fuehrt
+beim Start `alembic upgrade head` aus.
+
+## Authentifizierung und Autorisierung
+
+- `AUTH_MODE=dev`: Identitaet ueber den `X-User-Id`-Header, verweigert unter `APP_ENV=production`.
+- `AUTH_MODE=azure_ad`: Microsoft Entra ID Bearer-Token, Validierung gegen die Tenant-JWKS.
+  Implementiert und getestet, aber noch nicht aktiv (siehe `azure-ad-setup.md`).
+
+Die Berechtigungen stehen in `app/permissions.py` und haengen als
+`Depends(requires(...))` an den Endpunkten. Rollen werden in der `roles`-Tabelle
+gehalten; die Presets im Seed sind fuehrend und werden beim Start abgeglichen.
+
+Personenbezogene Daten werden zusaetzlich mengenmaessig begrenzt: `build_reminders`
+liefert Personal- und Fuhrpark-Erinnerungen nur, wenn der Aufrufer
+`personnel:read` bzw. `fleet:read` besitzt. Das Cockpit nutzt dieselbe Pruefung.
 
 ## Compliance-Workflow
 

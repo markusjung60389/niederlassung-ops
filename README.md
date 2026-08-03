@@ -1,8 +1,10 @@
 # Remscheid Ops Platform
 
+[![CI](https://github.com/markusjung60389/niederlassung-ops/actions/workflows/ci.yml/badge.svg)](https://github.com/markusjung60389/niederlassung-ops/actions/workflows/ci.yml)
+
 Separate Ops-, Compliance- und Bestandsaufnahme-Anwendung fuer die Niederlassung Remscheid von B.Schmitt mobile.
 
-## Umfang V1
+## Umfang
 
 - Bestandsaufnahme als primaerer Einstieg fuer manuell erfasste Niederlassungsdaten
 - Cockpit mit ueberfaelligen Compliance-Themen, 30-Tage-Faelligkeiten, offenen Massnahmen, Incidents, Qualifikationen, Service- und Pipeline-Snapshot
@@ -10,17 +12,45 @@ Separate Ops-, Compliance- und Bestandsaufnahme-Anwendung fuer die Niederlassung
 - Evidence- und Massnahmenmodell pro Compliance-Record
 - Mitarbeiter und Qualifikationen mit Ablauf-/Reminderlogik
 - Incident-Erfassung
-- Audit Log fuer Compliance-relevante Aenderungen
+- Rollenbasierte Zugriffskontrolle auf allen API-Endpunkten
+- Audit Log fuer Compliance-relevante Aenderungen, lesbar ueber `GET /api/audit-log`
 - Serverseitig gekapselter Hermes-Client mit Agent-Run-Logging
+- Versionierte Alembic-Migrationen
 - Docker Compose mit `ops-frontend`, `ops-backend`, `db` und `worker`
 
-Nicht enthalten in V1: Dashboard-Import, Shared DB, Synchronisation mit dem vorhandenen Projekt-Dashboard.
+Nicht enthalten: Dashboard-Import, Shared DB, Synchronisation mit dem vorhandenen Projekt-Dashboard.
+
+## Authentifizierung
+
+Zwei Modi, gesteuert ueber `AUTH_MODE`:
+
+| Modus | Verhalten |
+| --- | --- |
+| `dev` (Standard) | Der Aufrufer weist sich mit `X-User-Id` aus. Nur fuer lokale Arbeit und Tests. Das Backend verweigert den Start, wenn gleichzeitig `APP_ENV=production` gesetzt ist. |
+| `azure_ad` | Microsoft Entra ID Bearer-Token werden bei jedem Request geprueft (Signatur, Issuer, Audience, Ablauf) und auf lokale Rollen gemappt. |
+
+**Der Azure-AD-Pfad ist implementiert und getestet, aber noch nicht scharf geschaltet.**
+Die Aktivierung ist Schritt fuer Schritt in [`docs/azure-ad-setup.md`](docs/azure-ad-setup.md)
+beschrieben; im Frontend fehlt dafuer noch die MSAL-Abhaengigkeit.
+
+Rollen und Berechtigungen stehen in `backend/app/permissions.py`:
+
+| Rolle | Berechtigungen |
+| --- | --- |
+| Niederlassungsleiter | `*` |
+| HSE / Compliance | `compliance:*`, `incident:*`, `personnel:read`, `fleet:read`, `assessment:read`, `agent:run`, `audit:read` |
+| Betrachter | alle `:read` |
+
+Alle `/api/*`-Endpunkte erfordern eine Identitaet, Lesezugriffe eingeschlossen.
+Ausgenommen ist nur `/health` fuer den Container-Healthcheck.
+Personenbezogene Daten werden zusaetzlich gefiltert: wer `personnel:read` nicht
+hat, bekaeme im Cockpit weder Namen noch Aufenthalts- oder Vorsorgetermine.
 
 ## Start per Docker
 
 ```powershell
 Copy-Item .env.example .env
-# bei Bedarf HERMES_API_KEY in .env setzen
+# POSTGRES_PASSWORD und DATABASE_URL setzen - beide haben bewusst keinen Default
 docker compose up --build
 ```
 
@@ -30,7 +60,33 @@ Danach:
 - Backend Health: http://localhost:8000/health
 - API Docs: http://localhost:8000/docs
 
-Die erste Version erzeugt das initiale Schema beim Backend-Start ueber SQLAlchemy-Metadaten und seeded nur Remscheid sowie minimale Rollen/User. Fachliche Daten werden in der App erfasst. Fuer spaetere produktive Increments sollte daraus eine versionierte Alembic-Migration gemacht werden.
+Im Entwicklungsmodus waehlt das Frontend oben rechts die Identitaet aus
+`GET /api/auth/dev-users`; damit laesst sich das Rollenmodell durchspielen.
+
+Die Datenbank veroeffentlicht keinen Host-Port. Zugriff bei Bedarf ueber
+`docker compose exec db psql -U remscheid_ops remscheid_ops`.
+
+## Datenbankschema
+
+Das Schema wird beim Backend-Start ueber `alembic upgrade head` angelegt und
+aktualisiert. **Bestandsdaten bleiben dabei immer erhalten** - auch eine
+Datenbank aus der Zeit vor Einfuehrung der Migrationen wird uebernommen und
+hochmigriert, nicht neu aufgesetzt.
+
+Geseedet werden nur Remscheid sowie die drei Rollen und je ein Konto dazu;
+fachliche Daten werden in der App erfasst.
+
+Neue Migration nach einer Modelaenderung:
+
+```powershell
+cd backend
+alembic revision --autogenerate -m "beschreibung"
+# erzeugte Datei pruefen, siehe docs/migrations.md
+alembic upgrade head
+```
+
+Die verbindlichen Regeln dazu stehen in [`docs/migrations.md`](docs/migrations.md).
+`alembic check` laeuft in der CI und blockiert eine Modelaenderung ohne Migration.
 
 ## Lokale Backend-Pruefung
 
@@ -45,15 +101,23 @@ uvicorn app.main:app --reload
 
 Ohne `DATABASE_URL` nutzt das Backend lokal SQLite (`backend/remscheid_ops.db`). Im Compose-Stack wird PostgreSQL verwendet.
 
+Beispielaufruf im Entwicklungsmodus:
+
+```http
+GET http://localhost:8000/api/cockpit
+X-User-Id: user-branch-manager
+```
+
 ## Lokale Frontend-Entwicklung
 
 ```powershell
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
 Bei lokaler Entwicklung erwartet das Frontend standardmaessig `http://localhost:8000` als API.
+`CORS_ALLOW_ORIGINS` im Backend muss den Origin des Frontends enthalten.
 
 ## Hermes-Konfiguration
 
@@ -65,22 +129,56 @@ HERMES_API_KEY=<secret>
 HERMES_AGENT_MODEL=hermes-agent
 ```
 
-Hermes kann spaeter serverseitig auf die erfassten Daten zugreifen, z. B. ueber `GET /api/hermes/context/branches/branch-remscheid`.
-
-Use Cases V1:
+Use Cases:
 
 ```http
-GET /api/hermes/context/branches/branch-remscheid
-POST /api/agent/compliance-review
+GET  /api/hermes/context/branches/branch-remscheid   # compliance:read + personnel:read
+POST /api/agent/compliance-review                    # agent:run
 ```
 
-Der Kontext-Endpunkt liefert Hermes spaeter die erfassten Bestandsaufnahme-, Compliance-, Mitarbeiter- und Massnahmendaten. Der Review-Endpunkt kann fuer einen zuvor erfassten Compliance-Record genutzt werden und speichert Request/Response in `agent_runs`.
+Der Kontext-Endpunkt liefert Hermes die erfassten Bestandsaufnahme-, Compliance-,
+Mitarbeiter- und Massnahmendaten. Der Review-Endpunkt speichert Request und
+Response in `agent_runs`.
+
+## Betrieb aus veroeffentlichten Images
+
+Images liegen auf ghcr.io; die Konfiguration wird beim Containerstart injiziert,
+dasselbe Image laeuft daher in jeder Umgebung.
+
+```bash
+cp .env.example .env          # POSTGRES_PASSWORD, DATABASE_URL, CORS_ALLOW_ORIGINS setzen
+export OPS_IMAGE_TAG=v1.0.0
+docker compose -f docker-compose.release.yml pull
+docker compose -f docker-compose.release.yml up -d
+```
+
+Details, Upgrade- und Rollback-Weg: [`docs/release.md`](docs/release.md).
+
+## Hintergrundjobs
+
+Der `worker`-Container fuehrt im Takt von `WORKER_INTERVAL_SECONDS` aus:
+
+- abgeschlossene wiederkehrende Compliance-Records zum naechsten Termin wieder
+  oeffnen (`recurrence` steuert den Abstand)
+- die Eskalationsstufe offener Massnahmen an die Ueberfaelligkeit angleichen
+
+Beide Jobs sind idempotent und schreiben ins Audit-Log.
+
+## Bekannte Einschraenkungen
+
+- Azure AD ist vorbereitet und getestet, aber nicht aktiv: im Frontend fehlt
+  noch die MSAL-Abhaengigkeit. Siehe [`docs/azure-ad-setup.md`](docs/azure-ad-setup.md).
+- Mehrere Niederlassungen sind im Datenmodell vorgesehen, die Oberflaeche
+  arbeitet weiterhin mit der ersten.
+- Der Worker laeuft als Einzelinstanz ohne Sperren; parallele Instanzen sind
+  nicht vorgesehen.
 
 ## Weitere Dokumentation
 
-- `docs/architecture.md`
-- `schemas/compliance-record.schema.json`
+- [`docs/architecture.md`](docs/architecture.md) - Aufbau und Datenfluss
+- [`docs/migrations.md`](docs/migrations.md) - Schemaaenderungen und Datenerhalt
+- [`docs/release.md`](docs/release.md) - Release, ghcr.io, Upgrade, Rollback
+- [`docs/azure-ad-setup.md`](docs/azure-ad-setup.md) - Entra ID aktivieren
+- [`CHANGELOG.md`](CHANGELOG.md)
+- API-Referenz: `/docs` bzw. `/openapi.json` am laufenden Backend
 - Originale Uebergabe: `handover/remscheid-ops-platform`
-
-
-

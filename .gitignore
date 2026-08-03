@@ -22,3 +22,5 @@ remscheid-ops-platform/
 
 # Runtime output
 logs/
+backend/uploads/
+uploads/
