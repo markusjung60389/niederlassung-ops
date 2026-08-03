@@ -36,6 +36,11 @@ Kein zusaetzliches Secret erforderlich - `GITHUB_TOKEN` genuegt.
 
 ## Release erstellen
 
+Zwei gleichwertige Wege. Beide erzeugen dieselben Image-Tags und denselben
+GitHub-Release-Eintrag.
+
+### Weg A: Tag pushen (Standard)
+
 ```bash
 # 1. CHANGELOG.md ergaenzen, Version in backend/app/main.py (VERSION)
 #    und frontend/package.json angleichen
@@ -44,24 +49,40 @@ git tag -a v1.0.0 -m "v1.0.0"
 git push origin v1.0.0
 ```
 
-Der Tag startet `.github/workflows/release.yml`:
+### Weg B: Manuell ueber die Actions-Oberflaeche
+
+Fuer Umgebungen, in denen kein Tag gepusht werden kann (eingeschraenkte
+Git-Zugaenge, Arbeit ueber die API):
+
+*Actions → Release → Run workflow*, Feld **version** auf `1.0.0` setzen
+(ohne fuehrendes `v`), Branch `main`.
+
+Der Workflow prueft das Format, baut die Images mit denselben Tags und legt
+**Tag und Release selbst an** (`gh release create --target`). Der so erzeugte
+Tag loest den Workflow nicht erneut aus, weil er mit `GITHUB_TOKEN` entsteht.
+
+Bleibt das Feld leer, wird nur `:edge` neu gebaut.
+
+### Was danach laeuft
+
+Beide Wege starten `.github/workflows/release.yml`:
 
 1. `verify` fuehrt die komplette CI aus (Tests, Migrationen gegen SQLite **und**
    PostgreSQL, Typecheck, Build, Compose-Validierung).
 2. `build` baut beide Images und pusht sie nach ghcr.io.
-3. `release` legt den GitHub-Release-Eintrag an.
+3. `release` legt Tag und GitHub-Release-Eintrag an.
 
 Images werden nur aus einem gruenen Baum gebaut. Pushes auf `main` erzeugen
-zusaetzlich `:edge` zum Testen vor dem Tag.
+zusaetzlich `:edge` zum Testen vor dem Release.
 
-Erzeugte Image-Tags aus dem Git-Tag `v1.0.0`:
+Erzeugte Image-Tags fuer Version `1.0.0`:
 
 | Image-Tag | Woher |
 | --- | --- |
 | `1.0.0` | Semver ohne fuehrendes `v` |
 | `1.0` | Minor-Serie, folgt Patch-Releases |
 | `v1.0.0` | Git-Tag unveraendert, damit `OPS_IMAGE_TAG=v1.0.0` funktioniert |
-| `latest` | nur bei Tags, nicht bei `main` |
+| `latest` | nur bei Releases, nicht bei einem reinen `main`-Push |
 | `sha-<kurz>` | exakter Commit |
 
 Fuer ein Deployment gehoert ein fester Tag in die `.env`, nicht `latest`.
