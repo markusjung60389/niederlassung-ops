@@ -8,13 +8,15 @@ from sqlalchemy.orm import Session, selectinload
 from .. import crud, models, permissions, schemas, storage
 from ..auth import Principal, requires
 from ..database import get_db
-from ..deps import audit, ensure_ref, get_or_404, guard_children, snapshot
+from ..deps import audit, ensure_branch_access, ensure_ref, get_or_404, guard_children, snapshot
 from ..domain import add_months
+from ..readiness import load_overrides
 from ..serializers import employee_query, employee_read, profile_read, qualification_read
 
 router = APIRouter(tags=["personnel"])
 
 WriteDep = Annotated[Principal, Depends(requires(permissions.PERSONNEL_WRITE))]
+ReadDep = Annotated[Principal, Depends(requires(permissions.PERSONNEL_READ))]
 read_dependency = Depends(requires(permissions.PERSONNEL_READ))
 
 
@@ -23,23 +25,34 @@ read_dependency = Depends(requires(permissions.PERSONNEL_READ))
 # --------------------------------------------------------------------------
 
 
-@router.get("/api/employees", response_model=list[schemas.EmployeeRead], dependencies=[read_dependency])
+@router.get("/api/employees", response_model=list[schemas.EmployeeRead])
 def list_employees(
+    principal: ReadDep,
     branch_id: str | None = None,
     include_inactive: bool = False,
     limit: Annotated[int, Query(ge=1, le=500)] = 200,
     db: Session = Depends(get_db),
 ) -> list[schemas.EmployeeRead]:
-    query = employee_query(branch_id, include_inactive=include_inactive)
+    """Employees of the selected branch, home branch or deployment.
+
+    Deployability is reported for that branch: an exception granted elsewhere
+    does not travel with the person.
+    """
+    query = employee_query(principal.scope(branch_id), include_inactive=include_inactive)
     employees = db.scalars(query.limit(limit)).all()
-    return [employee_read(employee) for employee in employees]
+    overrides = load_overrides(db)
+    return [employee_read(employee, branch_id, overrides) for employee in employees]
 
 
 @router.post("/api/employees", response_model=schemas.EmployeeRead)
 def create_employee(
     payload: schemas.EmployeeCreate, principal: WriteDep, db: Session = Depends(get_db)
 ) -> schemas.EmployeeRead:
+    # Existence first: a branch id that does not exist is a bad request in any
+    # scope, and reporting it as "no access" would send the caller looking for
+    # a permission problem they do not have.
     ensure_ref(db, models.Branch, payload.branch_id, "branch_id")
+    ensure_branch_access(principal, payload.branch_id)
     ensure_ref(db, models.JobRole, payload.job_role_id, "job_role_id")
     employee = models.Employee(**payload.model_dump())
     db.add(employee)
@@ -50,11 +63,17 @@ def create_employee(
     return employee_read(employee)
 
 
-@router.get(
-    "/api/employees/{employee_id}", response_model=schemas.EmployeeRead, dependencies=[read_dependency]
-)
-def get_employee(employee_id: str, db: Session = Depends(get_db)) -> schemas.EmployeeRead:
-    return employee_read(get_or_404(db, models.Employee, employee_id, "Employee"))
+@router.get("/api/employees/{employee_id}", response_model=schemas.EmployeeRead)
+def get_employee(
+    employee_id: str,
+    principal: ReadDep,
+    branch_id: str | None = None,
+    db: Session = Depends(get_db),
+) -> schemas.EmployeeRead:
+    employee = get_or_404(db, models.Employee, employee_id, "Employee")
+    if not any(principal.may_see(item) for item in employee.assigned_branch_ids):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+    return employee_read(employee, branch_id, load_overrides(db))
 
 
 @router.patch("/api/employees/{employee_id}", response_model=schemas.EmployeeRead)
@@ -75,6 +94,60 @@ def update_employee(
     db.commit()
     db.refresh(employee)
     return employee_read(employee)
+
+
+@router.post("/api/employees/{employee_id}/branches", response_model=schemas.EmployeeRead)
+def assign_to_branch(
+    employee_id: str,
+    payload: schemas.EmployeeBranchCreate,
+    principal: WriteDep,
+    db: Session = Depends(get_db),
+) -> schemas.EmployeeRead:
+    """Deploys somebody to a second branch besides their home branch.
+
+    Requirements add up rather than being replaced: whoever works in two
+    branches has to satisfy both sets, otherwise an exception granted in one
+    would quietly become a licence to work in the other.
+    """
+    employee = get_or_404(db, models.Employee, employee_id, "Employee")
+    ensure_ref(db, models.Branch, payload.branch_id, "branch_id")
+    # Both ends: the branch giving the person away and the one receiving them.
+    ensure_branch_access(principal, employee.branch_id)
+    ensure_branch_access(principal, payload.branch_id)
+    if payload.branch_id == employee.branch_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This is already the employee's home branch",
+        )
+    if any(link.branch_id == payload.branch_id for link in employee.branch_links):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Already deployed to this branch"
+        )
+
+    link = models.EmployeeBranch(employee_id=employee_id, branch_id=payload.branch_id, note=payload.note)
+    db.add(link)
+    db.flush()
+    audit(db, "employee", employee_id, "branch_assigned", payload.model_dump(mode="json"), principal)
+    db.commit()
+    db.refresh(employee)
+    return employee_read(employee, None, load_overrides(db))
+
+
+@router.delete("/api/employees/{employee_id}/branches/{branch_id}", response_model=schemas.EmployeeRead)
+def remove_from_branch(
+    employee_id: str, branch_id: str, principal: WriteDep, db: Session = Depends(get_db)
+) -> schemas.EmployeeRead:
+    employee = get_or_404(db, models.Employee, employee_id, "Employee")
+    ensure_branch_access(principal, employee.branch_id)
+    ensure_branch_access(principal, branch_id)
+    link = next((item for item in employee.branch_links if item.branch_id == branch_id), None)
+    if link is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Deployment not found")
+    audit(db, "employee", employee_id, "branch_removed", snapshot(link), principal)
+    db.delete(link)
+    db.commit()
+    db.refresh(employee)
+    return employee_read(employee, None, load_overrides(db))
 
 
 @router.delete("/api/employees/{employee_id}", status_code=status.HTTP_204_NO_CONTENT)

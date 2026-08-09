@@ -66,9 +66,42 @@ button {
   white-space: nowrap;
 }
 
+/* Branch switcher: the one control that changes what every screen shows, so
+   it sits next to the identity rather than inside a view. */
+.ops-branch {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  color: var(--pds-text-2);
+}
+
+.ops-branch select {
+  width: 190px;
+}
+
 .ops-stack {
   display: grid;
   gap: 16px;
+}
+
+/* Sign-in card: narrow enough to read as a form rather than a page. */
+.ops-login {
+  display: grid;
+  gap: 14px;
+  width: min(420px, 100%);
+}
+
+/* Permission checkbox with its explanation underneath. */
+.ops-check--block {
+  align-items: flex-start;
+  gap: 10px;
+  padding: 6px 0;
+}
+
+.ops-check--block > span {
+  display: grid;
+  gap: 2px;
 }
 
 .ops-row {

@@ -60,10 +60,62 @@ class RequirementState:
     issued_on: date | None
     qualification_id: str | None
     has_evidence: bool
+    # Set when a branch exception changed or removed this requirement.
+    override_mode: str | None = None
+    override_reason: str | None = None
 
     @property
     def open(self) -> bool:
         return self.state != STATE_OK
+
+
+def override_is_active(override: models.RequirementOverride, today: date) -> bool:
+    """An exception counts until it expires or a revocation takes effect.
+
+    A revocation names the date from which it bites, so a branch gets time to
+    close the gap instead of turning red overnight.
+    """
+    if override.valid_until is not None and override.valid_until < today:
+        return False
+    if override.revoked_at is not None:
+        effective = override.revoked_effective_from
+        if effective is None or effective <= today:
+            return False
+    return True
+
+
+def effective_requirements(
+    employee: models.Employee,
+    branch_id: str,
+    overrides: dict[tuple[str, str], models.RequirementOverride],
+    *,
+    today: date | None = None,
+) -> list[tuple[models.JobRoleRequirement, bool, models.RequirementOverride | None]]:
+    """What the function demands of this person in this branch.
+
+    Group requirement plus the branch's exception, not a copy of the group
+    requirement: a change to the group standard reaches every branch that has
+    not explicitly excused itself.
+    """
+    if employee.job_role is None:
+        return []
+    current = today or today_local()
+    result = []
+    for requirement in employee.job_role.requirements:
+        kind = requirement.qualification_type
+        # A qualification defined only for another branch cannot be demanded here.
+        if kind.branch_id is not None and kind.branch_id != branch_id:
+            continue
+        override = overrides.get((branch_id, requirement.id))
+        if override is not None and not override_is_active(override, current):
+            override = None
+        mandatory = requirement.mandatory
+        if override is not None:
+            if override.mode == "excluded":
+                continue
+            mandatory = override.mode == "mandatory"
+        result.append((requirement, mandatory, override))
+    return result
 
 
 def _worst(states: list[str]) -> str:
@@ -95,10 +147,15 @@ def requirement_state(
     qualifications: list[models.EmployeeQualification],
     *,
     today: date | None = None,
+    mandatory: bool | None = None,
+    override: models.RequirementOverride | None = None,
 ) -> RequirementState:
     current = today or today_local()
     kind = requirement.qualification_type
     matching = [item for item in qualifications if item.qualification_type_id == kind.id]
+    required = requirement.mandatory if mandatory is None else mandatory
+    override_mode = override.mode if override else None
+    override_reason = override.reason if override else None
 
     if not matching:
         return RequirementState(
@@ -106,12 +163,14 @@ def requirement_state(
             code=kind.code,
             name=kind.name,
             category=kind.category,
-            mandatory=requirement.mandatory,
+            mandatory=required,
             state=STATE_MISSING,
             valid_until=None,
             issued_on=None,
             qualification_id=None,
             has_evidence=False,
+            override_mode=override_mode,
+            override_reason=override_reason,
         )
 
     entry = _newest(matching)
@@ -135,24 +194,40 @@ def requirement_state(
         code=kind.code,
         name=kind.name,
         category=kind.category,
-        mandatory=requirement.mandatory,
+        mandatory=required,
         state=state,
         valid_until=entry.valid_until,
         issued_on=entry.issued_on,
         qualification_id=entry.id,
         has_evidence=has_evidence,
+        override_mode=override_mode,
+        override_reason=override_reason,
     )
 
 
 def requirement_states(
-    employee: models.Employee, *, today: date | None = None
+    employee: models.Employee,
+    branch_id: str | None = None,
+    overrides: dict[tuple[str, str], models.RequirementOverride] | None = None,
+    *,
+    today: date | None = None,
 ) -> list[RequirementState]:
+    """Requirement states for one branch.
+
+    Without a branch the home branch is used, which is what a single-branch
+    installation always meant.
+    """
     if employee.job_role is None:
         return []
+    target = branch_id or employee.branch_id
     qualifications = list(employee.qualifications)
     states = [
-        requirement_state(requirement, qualifications, today=today)
-        for requirement in employee.job_role.requirements
+        requirement_state(
+            requirement, qualifications, today=today, mandatory=mandatory, override=override
+        )
+        for requirement, mandatory, override in effective_requirements(
+            employee, target, overrides or {}, today=today
+        )
     ]
     # Mandatory first, then by severity, then alphabetically - the order a
     # manager reads them in.
@@ -160,6 +235,24 @@ def requirement_states(
         states,
         key=lambda item: (not item.mandatory, STATE_ORDER.index(item.state), item.name),
     )
+
+
+def readiness_by_branch(
+    employee: models.Employee,
+    overrides: dict[tuple[str, str], models.RequirementOverride] | None = None,
+    *,
+    today: date | None = None,
+) -> dict[str, str]:
+    """Deployability per branch the person works in.
+
+    Requirements add up across assignments rather than averaging out: an
+    exception granted in one branch must not become a loophole for working in
+    another.
+    """
+    return {
+        branch_id: readiness_of(requirement_states(employee, branch_id, overrides, today=today))
+        for branch_id in sorted(employee.assigned_branch_ids)
+    }
 
 
 def readiness_of(states: list[RequirementState]) -> str:
@@ -299,3 +392,17 @@ def first_aider_target(headcount: int) -> int:
     if headcount <= 2:
         return 0
     return max(1, -(-headcount // 10))
+
+
+def load_overrides(db, branch_ids: list[str] | None = None) -> dict[tuple[str, str], "models.RequirementOverride"]:
+    """All branch exceptions, keyed by (branch, requirement).
+
+    One query per request instead of one per employee; four branches times a
+    handful of exceptions is a small map.
+    """
+    from sqlalchemy import select
+
+    query = select(models.RequirementOverride)
+    if branch_ids is not None:
+        query = query.where(models.RequirementOverride.branch_id.in_(branch_ids or ["-"]))
+    return {(item.branch_id, item.requirement_id): item for item in db.scalars(query).all()}

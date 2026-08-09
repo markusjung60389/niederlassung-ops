@@ -1,15 +1,16 @@
 import React from "react";
-import { Pencil, Plus, Trash2, TriangleAlert } from "lucide-react";
-import { apiDelete, apiPatch, apiPost } from "../api";
+import { Eye, Pencil, Plus, Trash2, TriangleAlert } from "lucide-react";
+import { ApiError, apiDelete, apiPatch, apiPost, apiStepUp, errorMessage } from "../api";
 import { label, requirementTone } from "../labels";
 import {
   can,
-  type Bootstrap,
+  type Branch,
   type Employee,
   type JobRole,
   type Qualification,
   type QualificationType,
   type RequirementState,
+  type Salary,
 } from "../types";
 import { ActionCell, Cell, Row, Table, TitleCell } from "../components/Table";
 import { ConfirmDialog, Modal } from "../components/Modal";
@@ -28,6 +29,8 @@ import {
   TextInput,
   emptyToNull,
   formatDate,
+  formatEuro,
+  numberOrNull,
   splitCsv,
   toneOf,
   useAction,
@@ -41,7 +44,8 @@ export function EmployeeView({
   employees,
   jobRoles,
   qualificationTypes,
-  bootstrap,
+  branches,
+  branchId,
   permissions,
   onReload,
   onToast,
@@ -49,7 +53,9 @@ export function EmployeeView({
   employees: Employee[];
   jobRoles: JobRole[];
   qualificationTypes: QualificationType[];
-  bootstrap: Bootstrap;
+  branches: Branch[];
+  /** The selected branch, or null while every branch is shown at once. */
+  branchId: string | null;
   permissions: string[];
   onReload: () => void;
   onToast: (message: string) => void;
@@ -195,7 +201,8 @@ export function EmployeeView({
         <EmployeeDialog
           employee={editing === "new" ? null : editing}
           jobRoles={jobRoles}
-          bootstrap={bootstrap}
+          branches={branches}
+          branchId={branchId}
           onClose={() => setEditing(null)}
           onSaved={(message) => {
             setEditing(null);
@@ -209,6 +216,9 @@ export function EmployeeView({
         <EmployeeDetail
           employee={selected}
           qualificationTypes={qualificationTypes}
+          branches={branches}
+          branchId={branchId}
+          permissions={permissions}
           mayWrite={mayWrite}
           onClose={() => setDetail(null)}
           onChanged={(message) => {
@@ -250,13 +260,15 @@ export function EmployeeView({
 function EmployeeDialog({
   employee,
   jobRoles,
-  bootstrap,
+  branches,
+  branchId,
   onClose,
   onSaved,
 }: {
   employee: Employee | null;
   jobRoles: JobRole[];
-  bootstrap: Bootstrap;
+  branches: Branch[];
+  branchId: string | null;
   onClose: () => void;
   onSaved: (message: string) => void;
 }) {
@@ -264,7 +276,11 @@ function EmployeeDialog({
   const [dirty, setDirty] = React.useState(false);
   const { error, busy, run } = useSubmit(() => onSaved(employee ? "Aenderungen gespeichert" : "Mitarbeiter angelegt"));
   const profile = employee?.profile ?? null;
-  const branchId = employee?.branch_id ?? bootstrap.branches[0]?.id;
+  // While no branch is selected there is nothing to guess from, so the form
+  // asks - creating somebody in the wrong branch is tedious to undo.
+  const [homeBranch, setHomeBranch] = React.useState(
+    employee?.branch_id ?? branchId ?? branches[0]?.id ?? ""
+  );
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -272,7 +288,7 @@ function EmployeeDialog({
     const data = new FormData(form);
 
     run(form, async () => {
-      if (!branchId) throw new Error("Keine Niederlassung verfuegbar.");
+      if (!homeBranch) throw new Error("Keine Niederlassung verfuegbar.");
       const core = {
         full_name: data.get("full_name"),
         role: String(data.get("role") || "").trim() || "Mitarbeiter",
@@ -290,7 +306,7 @@ function EmployeeDialog({
         ? await apiPatch<Employee>(`/api/employees/${employee.id}`, core)
         : // The profile is only sent once the employee exists, so a failed
           // first call cannot silently discard it.
-          await apiPost<Employee>("/api/employees", { branch_id: branchId, ...core });
+          await apiPost<Employee>("/api/employees", { branch_id: homeBranch, ...core });
 
       const profileFields = {
         contract_type: data.get("contract_type"),
@@ -356,6 +372,21 @@ function EmployeeDialog({
 
         <Fieldset legend="Stammdaten">
           <div className="ops-grid">
+            {!employee && branches.length > 1 && (
+              <Field label="Heimat-Niederlassung">
+                <Select
+                  value={homeBranch}
+                  onChange={(event) => setHomeBranch(event.target.value)}
+                  required
+                >
+                  {branches.map((branch) => (
+                    <option key={branch.id} value={branch.id}>
+                      {branch.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            )}
             <Field label="Name">
               <TextInput name="full_name" required minLength={2} defaultValue={employee?.full_name} />
             </Field>
@@ -454,18 +485,373 @@ function EmployeeDialog({
 }
 
 /* --------------------------------------------------------------------------
+ * Pay
+ * ----------------------------------------------------------------------- */
+
+/**
+ * Pay, behind a button and a second confirmation.
+ *
+ * Deliberately not loaded with the rest of the dialog: an amount that is
+ * fetched every time somebody opens an employee is an amount that gets read
+ * over shoulders, and every read is recorded. It is fetched when it is
+ * actually wanted, and the backend answers the first attempt with a challenge
+ * that sends the user through a fresh Microsoft confirmation.
+ */
+function SalaryPanel({
+  employee,
+  mayWrite,
+  onChanged,
+}: {
+  employee: Employee;
+  mayWrite: boolean;
+  onChanged: (message: string) => void;
+}) {
+  const [salary, setSalary] = React.useState<Salary | null>(null);
+  const [state, setState] = React.useState<"hidden" | "loading" | "confirm" | "shown" | "empty">(
+    "hidden"
+  );
+  const [problem, setProblem] = React.useState<string | null>(null);
+  const [editing, setEditing] = React.useState(false);
+
+  const load = React.useCallback(async () => {
+    setState("loading");
+    setProblem(null);
+    try {
+      const result = await apiStepUp<Salary>(
+        `/api/employees/${employee.id}/salary`,
+        {},
+        () => setState("confirm")
+      );
+      setSalary(result);
+      setState("shown");
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.status === 404) {
+        setSalary(null);
+        setState("empty");
+        return;
+      }
+      setProblem(errorMessage(caught));
+      setState("hidden");
+    }
+  }, [employee.id]);
+
+  return (
+    <div>
+      <h3 className="pds-label pds-label--micro" style={{ marginBottom: 8 }}>
+        Entgelt
+      </h3>
+      {problem && <div className="pds-banner pds-banner--danger">{problem}</div>}
+      {state === "confirm" && (
+        <div className="pds-banner">
+          Bitte die Anmeldung im Microsoft-Fenster bestaetigen.
+        </div>
+      )}
+
+      {state === "hidden" && (
+        <>
+          <button type="button" className="pds-btn pds-btn--outline pds-btn--sm" onClick={load}>
+            <Eye size={15} /> Entgelt anzeigen
+          </button>
+          <p className="pds-meta" style={{ marginTop: 8 }}>
+            Verlangt eine zusaetzliche Bestaetigung. Jeder Zugriff wird protokolliert.
+          </p>
+        </>
+      )}
+      {state === "loading" && <div className="pds-banner">Wird geladen...</div>}
+
+      {state === "empty" && (
+        <>
+          <p className="pds-meta">Fuer diese Person ist kein Entgelt hinterlegt.</p>
+          {mayWrite && (
+            <button
+              type="button"
+              className="pds-btn pds-btn--outline pds-btn--sm"
+              onClick={() => setEditing(true)}
+            >
+              <Plus size={15} /> Entgelt erfassen
+            </button>
+          )}
+        </>
+      )}
+
+      {state === "shown" && salary && (
+        <>
+          <dl className="ops-facts">
+            <dt>{salary.period === "monthly" ? "Monatsbrutto" : "Stundensatz"}</dt>
+            <dd className="ops-date">{formatEuro(salary.amount)}</dd>
+            <dt>Wochenstunden</dt>
+            <dd className="ops-date">{salary.hours_per_week ?? "-"}</dd>
+            <dt>Gueltig ab</dt>
+            <dd>{formatDate(salary.valid_from)}</dd>
+            {salary.note && (
+              <>
+                <dt>Notiz</dt>
+                <dd>{salary.note}</dd>
+              </>
+            )}
+            <dt>Zuletzt geaendert</dt>
+            <dd>{formatDate(salary.updated_at)}</dd>
+          </dl>
+          {mayWrite && (
+            <button
+              type="button"
+              className="pds-btn pds-btn--outline pds-btn--sm"
+              onClick={() => setEditing(true)}
+            >
+              <Pencil size={14} /> Entgelt aendern
+            </button>
+          )}
+        </>
+      )}
+
+      {editing && (
+        <SalaryDialog
+          employee={employee}
+          salary={salary}
+          onClose={() => setEditing(false)}
+          onSaved={(saved) => {
+            setEditing(false);
+            setSalary(saved);
+            setState("shown");
+            onChanged("Entgelt gespeichert");
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function SalaryDialog({
+  employee,
+  salary,
+  onClose,
+  onSaved,
+}: {
+  employee: Employee;
+  salary: Salary | null;
+  onClose: () => void;
+  onSaved: (saved: Salary) => void;
+}) {
+  const [busy, setBusy] = React.useState(false);
+  const [problem, setProblem] = React.useState<string | null>(null);
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    setBusy(true);
+    setProblem(null);
+    try {
+      const saved = await apiStepUp<Salary>(`/api/employees/${employee.id}/salary`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount: Number(data.get("amount")),
+          period: data.get("period"),
+          hours_per_week: numberOrNull(data.get("hours_per_week")),
+          valid_from: data.get("valid_from"),
+          note: emptyToNull(data.get("note")),
+        }),
+      });
+      onSaved(saved);
+    } catch (caught) {
+      setProblem(errorMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      open
+      size="sm"
+      title={salary ? "Entgelt aendern" : "Entgelt erfassen"}
+      subtitle={employee.full_name}
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className="pds-btn pds-btn--outline pds-btn--sm" onClick={onClose}>
+            Abbrechen
+          </button>
+          <span className="ops-spacer" />
+          <button
+            type="submit"
+            form="salary-form"
+            className="pds-btn pds-btn--primary pds-btn--sm"
+            disabled={busy}
+          >
+            {busy ? "Wird gespeichert..." : "Speichern"}
+          </button>
+        </>
+      }
+    >
+      <form id="salary-form" className="ops-dialog__body" onSubmit={submit}>
+        <FormStatus error={problem} busy={false} />
+        <div className="ops-grid">
+          <Field label="Art">
+            <Select name="period" defaultValue={salary?.period ?? "monthly"}>
+              <option value="monthly">Monatsbrutto</option>
+              <option value="hourly">Stundensatz</option>
+            </Select>
+          </Field>
+          <Field label="Betrag in EUR">
+            <TextInput
+              type="number"
+              name="amount"
+              min={1}
+              step="0.01"
+              required
+              defaultValue={salary?.amount ?? ""}
+            />
+          </Field>
+          <Field label="Wochenstunden">
+            <TextInput
+              type="number"
+              name="hours_per_week"
+              min={1}
+              max={80}
+              step="0.5"
+              defaultValue={salary?.hours_per_week ?? ""}
+            />
+          </Field>
+          <Field label="Gueltig ab">
+            <TextInput
+              type="date"
+              name="valid_from"
+              required
+              defaultValue={salary?.valid_from ?? ""}
+            />
+          </Field>
+        </div>
+        <Field label="Notiz" span>
+          <TextArea name="note" defaultValue={salary?.note ?? ""} />
+        </Field>
+        <p className="pds-meta">
+          Der Betrag steht nicht im Aenderungsprotokoll - dort wird nur vermerkt, dass und von wem
+          er geaendert wurde.
+        </p>
+      </form>
+    </Modal>
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * Deployments
+ * ----------------------------------------------------------------------- */
+
+/**
+ * Which branches somebody works in.
+ *
+ * Requirements add up across them rather than being replaced: a person
+ * deployed in two branches has to satisfy both sets. Anything else would turn
+ * an exception granted in one branch into a licence to work in the other.
+ */
+function Deployments({
+  employee,
+  branches,
+  mayWrite,
+  onChanged,
+}: {
+  employee: Employee;
+  branches: Branch[];
+  mayWrite: boolean;
+  onChanged: (message: string) => void;
+}) {
+  const [adding, setAdding] = React.useState("");
+  const assign = useAction(() => {
+    setAdding("");
+    onChanged("Einsatzort gespeichert");
+  });
+  const available = branches.filter(
+    (branch) => branch.id !== employee.branch_id && !employee.branch_ids.includes(branch.id)
+  );
+
+  return (
+    <div>
+      <h3 className="pds-label pds-label--micro" style={{ marginBottom: 8 }}>
+        Einsatzorte
+      </h3>
+      <FormStatus error={assign.error} busy={assign.busy} busyLabel="Wird gespeichert..." />
+      <div className="ops-chips">
+        {branches
+          .filter((branch) => employee.branch_ids.includes(branch.id))
+          .map((branch) => {
+            const home = branch.id === employee.branch_id;
+            const readiness = employee.readiness_by_branch[branch.id];
+            return (
+              <span key={branch.id} className="pds-tag" title={label.readiness(readiness)}>
+                {branch.name}
+                {home ? " (Heimat)" : ""}
+                {readiness && readiness !== "ready" ? ` · ${label.readiness(readiness)}` : ""}
+                {mayWrite && !home && (
+                  <button
+                    type="button"
+                    className="pds-btn pds-btn--link"
+                    style={{ marginLeft: 6 }}
+                    aria-label={`Einsatz in ${branch.name} beenden`}
+                    onClick={() =>
+                      assign.run(() =>
+                        apiDelete(`/api/employees/${employee.id}/branches/${branch.id}`)
+                      )
+                    }
+                  >
+                    entfernen
+                  </button>
+                )}
+              </span>
+            );
+          })}
+      </div>
+      {mayWrite && available.length > 0 && (
+        <div className="ops-row" style={{ marginTop: 10 }}>
+          <Select
+            value={adding}
+            aria-label="Weitere Niederlassung"
+            onChange={(event) => setAdding(event.target.value)}
+          >
+            <option value="">weitere Niederlassung...</option>
+            {available.map((branch) => (
+              <option key={branch.id} value={branch.id}>
+                {branch.name}
+              </option>
+            ))}
+          </Select>
+          <button
+            type="button"
+            className="pds-btn pds-btn--outline pds-btn--sm"
+            disabled={!adding || assign.busy}
+            onClick={() =>
+              assign.run(() =>
+                apiPost(`/api/employees/${employee.id}/branches`, { branch_id: adding })
+              )
+            }
+          >
+            <Plus size={15} /> Einsatzort
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* --------------------------------------------------------------------------
  * Detail: requirements and qualifications
  * ----------------------------------------------------------------------- */
 
 function EmployeeDetail({
   employee,
   qualificationTypes,
+  branches,
+  branchId,
+  permissions,
   mayWrite,
   onClose,
   onChanged,
 }: {
   employee: Employee;
   qualificationTypes: QualificationType[];
+  branches: Branch[];
+  branchId: string | null;
+  permissions: string[];
   mayWrite: boolean;
   onClose: () => void;
   onChanged: (message: string) => void;
@@ -483,6 +869,9 @@ function EmployeeDetail({
           <>
             {employee.job_role_name ?? employee.role}
             {employee.team ? ` · ${employee.team}` : ""} · seit {formatDate(employee.start_date)}
+            {branchId && branches.length > 1
+              ? ` · Beurteilung fuer ${branches.find((item) => item.id === branchId)?.name ?? ""}`
+              : ""}
           </>
         }
         onClose={onClose}
@@ -506,6 +895,23 @@ function EmployeeDetail({
               Pflichtqualifikationen fehlen oder sind abgelaufen &ndash; kein Einsatz in dieser
               Funktion.
             </div>
+          )}
+
+          {can(permissions, "salary:read") && (
+            <SalaryPanel
+              employee={employee}
+              mayWrite={can(permissions, "salary:write")}
+              onChanged={onChanged}
+            />
+          )}
+
+          {branches.length > 1 && (
+            <Deployments
+              employee={employee}
+              branches={branches}
+              mayWrite={mayWrite}
+              onChanged={onChanged}
+            />
           )}
 
           <RequirementList
@@ -733,16 +1139,18 @@ function QualificationDialog({
     const form = event.currentTarget;
     const data = new FormData(form);
     run(form, async () => {
-      const selected = emptyToNull(data.get("qualification_type_id"));
+      // The selected type comes from state, not from the form: when the dialog
+      // is opened from a requirement the select is disabled so it cannot be
+      // changed, and a disabled control is never submitted.
       const title = emptyToNull(data.get("title"));
-      if (!selected && !title) throw new Error("Bitte eine Qualifikation waehlen oder benennen.");
+      if (!typeId && !title) throw new Error("Bitte eine Qualifikation waehlen oder benennen.");
       await apiPost("/api/employee-qualifications", {
         employee_id: employee.id,
-        qualification_type_id: selected,
+        qualification_type_id: typeId || null,
         // Title and kind come from the catalogue when one is selected; a free
         // entry has to carry both itself.
         title,
-        qualification_type: selected ? null : "sonstige",
+        qualification_type: typeId ? null : "sonstige",
         issued_on: emptyToNull(data.get("issued_on")),
         valid_until: emptyToNull(data.get("valid_until")),
       });

@@ -155,8 +155,9 @@ def test_dev_users_offer_the_widest_role_first(client):
     with every action hidden.
     """
     users = client.get("/api/auth/dev-users", headers=auth(MANAGER)).json()
-    assert users[0]["id"] == "user-branch-manager"
+    assert users[0]["id"] == "user-area-manager"
     assert [item["role_name"] for item in users] == [
+        "Bereichsleiter",
         "Niederlassungsleiter",
         "HSE / Compliance",
         "Betrachter",

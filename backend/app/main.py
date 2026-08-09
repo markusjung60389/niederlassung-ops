@@ -12,7 +12,7 @@ from .seed import seed_base_data
 
 logger = logging.getLogger(__name__)
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 
 
 @asynccontextmanager

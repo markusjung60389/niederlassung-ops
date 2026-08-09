@@ -7,7 +7,7 @@ from decimal import Decimal
 from typing import Any, Iterable
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import false as sa_false, func, select
 from sqlalchemy.orm import Session
 
 from . import models
@@ -104,3 +104,29 @@ def get_or_404(db: Session, model: type, entity_id: str, label: str) -> Any:
     if instance is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"{label} not found")
     return instance
+
+
+def branch_filter(query, column, principal: Principal, branch_id: str | None):
+    """Restricts a query to the branches the caller may see.
+
+    Applied on every list endpoint. Without it a manager of one branch reads
+    the residence permits and occupational-health dates of every other - with
+    one branch that was a simplification, with four it is a data protection
+    problem.
+    """
+    allowed = principal.scope(branch_id)
+    if allowed is None:
+        return query
+    if not allowed:
+        # Requested a branch outside the caller's scope: empty, not everything.
+        return query.where(sa_false())
+    return query.where(column.in_(allowed))
+
+
+def ensure_branch_access(principal: Principal, branch_id: str | None, label: str = "branch") -> None:
+    """Guards a write against a branch the caller does not belong to."""
+    if not principal.may_see(branch_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"No access to {label} '{branch_id}'",
+        )

@@ -29,9 +29,29 @@ ActionStatus = Literal["open", "in_progress", "blocked", "done", "cancelled"]
 class BranchRead(BaseModel):
     id: str
     name: str
+    code: str | None = None
     location: str | None = None
+    active: bool = True
+    manager_user_id: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class BranchCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    code: str | None = Field(default=None, max_length=10)
+    location: str | None = None
+    manager_user_id: str | None = None
+    notes: str | None = None
+
+
+class BranchUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=120)
+    code: str | None = Field(default=None, max_length=10)
+    location: str | None = None
+    active: bool | None = None
+    manager_user_id: str | None = None
+    notes: str | None = None
 
 
 class UserRead(BaseModel):
@@ -51,6 +71,123 @@ class PrincipalRead(BaseModel):
     role_name: str | None = None
     permissions: list[str]
     source: str
+    # True while the start password is still in place: the frontend then shows
+    # nothing but the change dialog, and the API refuses everything else.
+    must_change_password: bool = False
+
+
+class LoginRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=200)
+    password: str = Field(min_length=1, max_length=200)
+
+
+class LoginResponse(BaseModel):
+    token: str
+    expires_at: datetime
+    must_change_password: bool
+    display_name: str
+
+
+class PasswordChange(BaseModel):
+    current_password: str = Field(min_length=1, max_length=200)
+    new_password: str = Field(min_length=1, max_length=200)
+
+
+class PasswordSet(BaseModel):
+    """An administrator setting a password for somebody else."""
+
+    new_password: str = Field(min_length=1, max_length=200)
+    # Practically always true: a password somebody else knows is a temporary
+    # one. Only clear it deliberately.
+    must_change: bool = True
+
+
+class RoleRead(BaseModel):
+    id: str
+    name: str
+    description: str | None = None
+    permissions: list[str]
+    system: bool = False
+    user_count: int = 0
+
+
+class RoleCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
+    description: str | None = None
+    permissions: list[str] = Field(default_factory=list)
+
+
+class RoleUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=80)
+    description: str | None = None
+    permissions: list[str] | None = None
+
+
+class PermissionRead(BaseModel):
+    """One entry of the permission catalogue, for the role editor."""
+
+    key: str
+    area: str
+    label: str
+    description: str
+
+
+class UserAdminRead(BaseModel):
+    id: str
+    display_name: str
+    email: str
+    is_active: bool
+    role_id: str | None = None
+    role_name: str | None = None
+    all_branches: bool
+    branch_ids: list[str]
+    # How this account signs in: through Entra ID, with a password, or not yet
+    # at all - which is worth seeing before somebody wonders why they cannot.
+    has_password: bool
+    external_id: str | None = None
+    must_change_password: bool
+    last_login_at: datetime | None = None
+    locked_until: datetime | None = None
+    created_at: datetime
+
+
+class UserCreate(BaseModel):
+    display_name: str = Field(min_length=2, max_length=160)
+    email: str = Field(min_length=3, max_length=200)
+    role_id: str | None = None
+    all_branches: bool = False
+    branch_ids: list[str] = Field(default_factory=list)
+    # Optional: only accounts that need the password login get one.
+    password: str | None = Field(default=None, max_length=200)
+
+
+class UserUpdate(BaseModel):
+    display_name: str | None = Field(default=None, min_length=2, max_length=160)
+    email: str | None = Field(default=None, min_length=3, max_length=200)
+    role_id: str | None = None
+    is_active: bool | None = None
+    all_branches: bool | None = None
+    branch_ids: list[str] | None = None
+    external_id: str | None = None
+
+
+class EmployeeSalaryRead(BaseModel):
+    employee_id: str
+    amount: float
+    period: Literal["monthly", "hourly"]
+    hours_per_week: float | None = None
+    valid_from: date
+    note: str | None = None
+    updated_by: str | None = None
+    updated_at: datetime
+
+
+class EmployeeSalaryWrite(BaseModel):
+    amount: float = Field(gt=0, le=1_000_000)
+    period: Literal["monthly", "hourly"] = "monthly"
+    hours_per_week: float | None = Field(default=None, gt=0, le=80)
+    valid_from: date
+    note: str | None = None
 
 
 class DevUserRead(BaseModel):
@@ -203,6 +340,10 @@ class ComplianceRecordRead(BaseModel):
     title: str
     category: str
     branch_id: str
+    # The rule this is the branch's instance of; None for a record that stands
+    # on its own, which is what every record was before rules existed.
+    rule_id: str | None = None
+    rule_scope: str | None = None
     scope_type: str
     scope_id: str | None = None
     status: str
@@ -259,6 +400,8 @@ class IncidentRead(IncidentCreate):
 class QualificationTypeCreate(BaseModel):
     code: str = Field(min_length=2, max_length=60)
     name: str = Field(min_length=2, max_length=180)
+    # None keeps the entry group-wide, which is the default on purpose.
+    branch_id: str | None = None
     category: str = Field(default="qualification", max_length=60)
     validity_months: int | None = Field(default=None, ge=1, le=600)
     reminder_days: int = Field(default=60, ge=1, le=365)
@@ -311,12 +454,14 @@ class JobRoleRequirementRead(BaseModel):
 
 class JobRoleCreate(BaseModel):
     name: str = Field(min_length=2, max_length=120)
+    branch_id: str | None = None
     description: str | None = None
     active: bool = True
 
 
 class JobRoleUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=2, max_length=120)
+    branch_id: str | None = None
     description: str | None = None
     active: bool | None = None
 
@@ -327,6 +472,132 @@ class JobRoleRead(JobRoleCreate):
     employee_count: int = 0
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class RequirementOverrideCreate(BaseModel):
+    """A branch deviating from a group requirement.
+
+    The reason is mandatory: an exception nobody can explain during an
+    inspection is worse than an open gap.
+    """
+
+    branch_id: str
+    requirement_id: str
+    mode: Literal["excluded", "mandatory", "optional"]
+    reason: str = Field(min_length=5)
+    valid_until: date | None = None
+
+
+class RequirementOverrideRevoke(BaseModel):
+    reason: str = Field(min_length=5)
+    # A revocation that bites immediately turns a branch red overnight, so it
+    # names the day it applies from.
+    effective_from: date | None = None
+
+
+class RequirementOverrideRead(BaseModel):
+    id: str
+    branch_id: str
+    branch_name: str
+    requirement_id: str
+    job_role_id: str
+    job_role_name: str
+    qualification_name: str
+    mode: str
+    reason: str
+    valid_until: date | None = None
+    created_by: str | None = None
+    created_at: datetime
+    acknowledged_at: datetime | None = None
+    revoked_at: datetime | None = None
+    revoked_reason: str | None = None
+    revoked_effective_from: date | None = None
+    active: bool
+
+
+class ComplianceRuleCreate(BaseModel):
+    title: str = Field(min_length=3, max_length=200)
+    # The same vocabulary the records use: a rule that materialises into a
+    # record the compliance view cannot categorise would be a rule nobody sees.
+    category: ComplianceCategory
+    control_type: ControlType
+    recurrence: Recurrence = "yearly"
+    legal_basis: str = Field(min_length=2, max_length=200)
+    priority: Priority = "medium"
+    risk_if_missing: str | None = None
+    # None means group-wide.
+    branch_id: str | None = None
+    valid_from: date | None = None
+    # Due date the branch instances start with.
+    first_due_date: date
+
+
+class ComplianceRuleUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=3, max_length=200)
+    category: ComplianceCategory | None = None
+    control_type: ControlType | None = None
+    recurrence: Recurrence | None = None
+    legal_basis: str | None = Field(default=None, min_length=2, max_length=200)
+    priority: Priority | None = None
+    risk_if_missing: str | None = None
+    valid_from: date | None = None
+    active: bool | None = None
+
+
+class ComplianceRuleScopeChange(BaseModel):
+    """Moves a rule between group-wide and branch-specific.
+
+    `branch_id` None promotes it to group-wide; a branch id restricts it to
+    that branch. `first_due_date` applies to the instances that newly come
+    into being.
+    """
+
+    branch_id: str | None = None
+    first_due_date: date | None = None
+    # Instances in branches that lose the rule become rules of their own
+    # instead of disappearing with their evidence.
+    detach_dropped: bool = True
+
+
+class ComplianceRuleRead(ComplianceRuleCreate):
+    id: str
+    first_due_date: date | None = None
+    active: bool = True
+    branch_name: str | None = None
+    record_count: int = 0
+    branch_ids: list[str] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ScopeChangePreview(BaseModel):
+    """What a scope change would do, before it does it."""
+
+    creates_in: list[str] = []
+    detaches_in: list[str] = []
+    unchanged_in: list[str] = []
+    newly_blocked_employees: int = 0
+
+
+class BranchPortfolioRow(BaseModel):
+    branch_id: str
+    branch_name: str
+    code: str | None = None
+    headcount: int
+    blocked: int
+    limited: int
+    overdue_compliance: int
+    due_vehicles: int
+    first_aiders_trained: int
+    first_aiders_required: int
+    open_exceptions: int
+    new_exceptions: int
+    state: str
+
+
+class EmployeeBranchCreate(BaseModel):
+    branch_id: str
+    note: str | None = None
 
 
 class EmployeeQualificationCreate(BaseModel):
@@ -366,6 +637,8 @@ class EmployeeQualificationRead(EmployeeQualificationCreate):
 class RequirementStateRead(BaseModel):
     """One line of the qualification matrix: what the function needs vs. what is on file."""
 
+    override_mode: str | None = None
+    override_reason: str | None = None
     qualification_type_id: str
     code: str
     name: str
@@ -399,6 +672,9 @@ class EmployeeRead(EmployeeCreate):
     profile: EmployeeProfileRead | None = None
     # Derived, never stored: deployability and the next date to act on.
     requirements: list[RequirementStateRead] = []
+    # Home branch plus deployments, and deployability in each of them.
+    branch_ids: list[str] = []
+    readiness_by_branch: dict[str, str] = {}
     readiness: str = "ready"
     due_state: str = "green"
     open_requirements: int = 0
@@ -462,6 +738,23 @@ class VehicleCreate(BaseModel):
     fuel_card_number: str | None = None
     equipment: list[str] = Field(default_factory=list)
     notes: str | None = None
+    # Where the vehicle currently stands, when that is not its home branch.
+    current_branch_id: str | None = None
+
+
+class VehicleRelocate(BaseModel):
+    """Moving a vehicle to another branch.
+
+    Temporary by default: the home branch keeps it on its books while the
+    receiving branch is responsible for HU, UVV and the driver. `permanent`
+    hands it over for good, which is the rarer and the more consequential of
+    the two - hence a flag rather than two fields the caller has to get right.
+    """
+
+    # None sends the vehicle back to its home branch.
+    branch_id: str | None = None
+    permanent: bool = False
+    note: str | None = None
 
 
 class VehicleRead(VehicleCreate):
@@ -470,6 +763,8 @@ class VehicleRead(VehicleCreate):
     updated_at: datetime
     # Derived, never stored.
     assigned_employee_name: str | None = None
+    current_branch_name: str | None = None
+    location_branch_id: str | None = None
     due_state: str = "green"
     next_due_title: str | None = None
     next_due_date: date | None = None
@@ -543,8 +838,6 @@ class CockpitResponse(BaseModel):
     expiring_qualifications: list[EmployeeQualificationRead]
     incidents: list[IncidentRead]
     reminders: list[ReminderRead]
-    pipeline_value: float
-    service_due_count: int
     vehicle_due_count: int
     employee_due_count: int
     blocked_employees: int = 0
@@ -655,6 +948,7 @@ class VehicleUpdate(BaseModel):
     fuel_card_number: str | None = None
     equipment: list[str] | None = None
     notes: str | None = None
+    current_branch_id: str | None = None
 
 
 class IncidentUpdate(BaseModel):

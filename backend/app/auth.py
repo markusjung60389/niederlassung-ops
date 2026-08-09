@@ -1,6 +1,7 @@
 """Authentication and authorisation.
 
-Two modes, selected via ``AUTH_MODE``:
+Three ways in, two of them selected via ``AUTH_MODE`` and one always
+available:
 
 ``dev``
     The caller identifies itself with the ``X-User-Id`` header, which must match
@@ -11,13 +12,21 @@ Two modes, selected via ``AUTH_MODE``:
     token signature is verified against the tenant JWKS, issuer and audience are
     checked, and the app roles in the token are mapped onto local roles.
 
-The Entra ID path is fully implemented but stays dormant until ``AUTH_MODE`` is
-switched to ``azure_ad``; see ``docs/azure-ad-setup.md``.
+``password`` (independent of ``AUTH_MODE``)
+    ``POST /api/auth/login`` issues a signed session token that is sent as a
+    bearer token like any other. This is the emergency door: if Entra ID is
+    unreachable or an app registration is broken, somebody still has to get in.
+    It can be switched off with ``AUTH_PASSWORD_LOGIN_ENABLED=false``.
+
+Under ``azure_ad`` both token kinds arrive in the same header, so the issuer
+decides which validator runs. See ``docs/azure-ad-setup.md`` and
+``docs/benutzerverwaltung.md``.
 """
 
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import time
 from dataclasses import dataclass
@@ -28,7 +37,7 @@ from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import models, permissions
+from . import models, permissions, security
 from .config import settings
 from .database import get_db
 
@@ -51,9 +60,47 @@ class Principal:
     permissions: frozenset[str]
     source: str
     role_name: str | None = None
+    # Which branches this caller may see and work in. `all_branches` is the
+    # area manager: no per-branch row has to be maintained for them, and a
+    # branch added later is included without anyone remembering to.
+    branch_ids: frozenset[str] = frozenset()
+    all_branches: bool = False
+    # True while the initial password has not been replaced. Everything except
+    # the change itself is refused, so a handed-over start password cannot
+    # quietly stay in use.
+    must_change_password: bool = False
+    # What the identity provider says about *how* this caller signed in. Used
+    # for the step-up in front of pay data, nothing else.
+    #   acrs      - satisfied authentication contexts (Entra ID, needs P1)
+    #   amr       - methods used, e.g. {"pwd", "mfa"}
+    #   auth_time - when that sign-in happened
+    acrs: frozenset[str] = frozenset()
+    amr: frozenset[str] = frozenset()
+    auth_time: int | None = None
 
     def has(self, permission: str) -> bool:
         return permissions.grants(self.permissions, permission)
+
+    def may_see(self, branch_id: str | None) -> bool:
+        """True when the caller may read data of that branch.
+
+        `None` means the row is not tied to a branch - a group-wide rule, for
+        instance - and is readable by anyone who may read the area at all.
+        """
+        return branch_id is None or self.all_branches or branch_id in self.branch_ids
+
+    def scope(self, branch_id: str | None = None) -> list[str] | None:
+        """The branch ids a query should be limited to.
+
+        `None` means no restriction, which only ever happens for the area
+        manager without a selected branch. A requested branch outside the
+        caller's scope yields an empty list rather than a silent widening.
+        """
+        if branch_id is not None:
+            return [branch_id] if self.may_see(branch_id) else []
+        if self.all_branches:
+            return None
+        return sorted(self.branch_ids)
 
 
 def _unauthorized(detail: str) -> HTTPException:
@@ -221,8 +268,20 @@ def _resolve_azure_user(db: Session, claims: dict[str, Any]) -> models.User:
 # --------------------------------------------------------------------------
 
 
-def _principal_from_user(user: models.User, source: str) -> Principal:
+def _claim_set(claims: dict[str, Any], name: str) -> frozenset[str]:
+    value = claims.get(name)
+    if isinstance(value, list):
+        return frozenset(str(item) for item in value)
+    if isinstance(value, str):
+        return frozenset({value})
+    return frozenset()
+
+
+def _principal_from_user(
+    user: models.User, source: str, claims: dict[str, Any] | None = None
+) -> Principal:
     role = user.role
+    claims = claims or {}
     return Principal(
         user_id=user.id,
         display_name=user.display_name,
@@ -230,7 +289,30 @@ def _principal_from_user(user: models.User, source: str) -> Principal:
         permissions=frozenset(role.permissions if role and role.permissions else ()),
         source=source,
         role_name=role.name if role else None,
+        branch_ids=frozenset(link.branch_id for link in user.branch_links),
+        all_branches=bool(user.all_branches),
+        must_change_password=bool(user.must_change_password),
+        acrs=_claim_set(claims, "acrs"),
+        amr=_claim_set(claims, "amr"),
+        auth_time=int(claims["auth_time"]) if str(claims.get("auth_time", "")).isdigit() else None,
     )
+
+
+def _resolve_session_user(db: Session, token: str) -> models.User | None:
+    """Turns a local session token into its account, or None if it is not one."""
+    if not security.looks_like_session(token):
+        return None
+    claims = security.read_session(token)
+    if claims is None:
+        raise _unauthorized("Sitzung abgelaufen oder ungueltig. Bitte neu anmelden.")
+    user = db.get(models.User, str(claims.get("sub")))
+    if user is None or not user.is_active:
+        raise _unauthorized("Sitzung abgelaufen oder ungueltig. Bitte neu anmelden.")
+    # A password change or a deactivation raises the version, which retires
+    # every token handed out before it.
+    if int(claims.get("tv") or 0) != int(user.token_version):
+        raise _unauthorized("Sitzung wurde beendet. Bitte neu anmelden.")
+    return user
 
 
 async def current_principal(
@@ -238,11 +320,24 @@ async def current_principal(
     x_user_id: Annotated[str | None, Header()] = None,
     authorization: Annotated[str | None, Header()] = None,
 ) -> Principal:
+    bearer = (
+        authorization.split(" ", 1)[1].strip()
+        if authorization and authorization.lower().startswith("bearer ")
+        else None
+    )
+
+    # The local session token is checked first and in both modes: it is the way
+    # back in when Entra ID is the thing that is broken.
+    if bearer and settings.auth_password_login_enabled:
+        user = _resolve_session_user(db, bearer)
+        if user is not None:
+            return _principal_from_user(user, "password")
+
     if settings.auth_mode == "azure_ad":
-        if not authorization or not authorization.lower().startswith("bearer "):
+        if not bearer:
             raise _unauthorized("Bearer token required.")
-        claims = await verify_azure_token(authorization.split(" ", 1)[1].strip())
-        return _principal_from_user(_resolve_azure_user(db, claims), "azure-ad")
+        claims = await verify_azure_token(bearer)
+        return _principal_from_user(_resolve_azure_user(db, claims), "azure-ad", claims)
 
     user_id = x_user_id or settings.auth_dev_default_user_id
     if not user_id:
@@ -257,11 +352,101 @@ async def current_principal(
 
 CurrentPrincipal = Annotated[Principal, Depends(current_principal)]
 
+# Endpoints that stay reachable while the initial password is still in place -
+# exactly the ones needed to get rid of it.
+PASSWORD_CHANGE_EXEMPT = {
+    "/api/auth/me",
+    "/api/auth/login",
+    "/api/auth/logout",
+    "/api/auth/change-password",
+}
+
+
+# --------------------------------------------------------------------------
+# Step-up for pay data
+# --------------------------------------------------------------------------
+
+
+def claims_challenge() -> str:
+    """The `claims` parameter MSAL has to repeat when asking for a new token.
+
+    Standard OpenID Connect claims request: "this token must state that the
+    configured authentication context was satisfied". Entra ID then runs
+    whatever the Conditional Access policy behind that context demands - in
+    practice a fresh MFA confirmation.
+    """
+    request = {
+        "access_token": {
+            "acrs": {"essential": True, "value": settings.azure_salary_auth_context}
+        }
+    }
+    return base64.b64encode(json.dumps(request).encode("utf-8")).decode("ascii")
+
+
+def step_up_satisfied(principal: Principal) -> bool:
+    """True when this caller has confirmed themselves strongly enough."""
+    if settings.auth_mode == "dev":
+        # There is no second factor to demand here, and the mode is refused in
+        # production anyway. Documented, not accidental.
+        return True
+    if principal.source != "azure-ad":
+        return False
+    if settings.azure_salary_auth_context in principal.acrs:
+        return True
+    # Fallback without an Entra ID P1 licence: a multi-factor sign-in that is
+    # recent enough. Weaker - it cannot demand a confirmation for this one
+    # action - but better than a permission check alone.
+    if "mfa" not in principal.amr or principal.auth_time is None:
+        return False
+    age = time.time() - principal.auth_time
+    return 0 <= age <= settings.salary_step_up_max_age_seconds
+
+
+def requires_step_up(principal: CurrentPrincipal) -> Principal:
+    """Guards pay data behind a second confirmation.
+
+    The permission says *who* may look; this says *how sure we are it is them*
+    right now. Deliberately closed for the local password login: an emergency
+    door that also opens the salary list is not an emergency door.
+    """
+    if principal.source == "password":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Ueber den Notfallzugang sind Entgeltdaten nicht erreichbar. "
+                "Dafuer die Anmeldung ueber Microsoft verwenden."
+            ),
+        )
+    if step_up_satisfied(principal):
+        return principal
+
+    challenge = claims_challenge()
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail={
+            "detail": "Fuer Entgeltdaten ist eine zusaetzliche Bestaetigung noetig.",
+            "claims_challenge": challenge,
+        },
+        headers={
+            "WWW-Authenticate": (
+                f'Bearer error="insufficient_claims", claims="{challenge}"'
+            )
+        },
+    )
+
+
+StepUpPrincipal = Annotated[Principal, Depends(requires_step_up)]
+
 
 def requires(*required: str) -> Callable[[Principal], Principal]:
     """Dependency factory: the caller must hold every listed permission."""
 
     def dependency(principal: CurrentPrincipal) -> Principal:
+        if principal.must_change_password:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Das Startpasswort muss zuerst geaendert werden.",
+            )
         missing = [item for item in required if not principal.has(item)]
         if missing:
             raise HTTPException(

@@ -7,23 +7,24 @@ from sqlalchemy.orm import Session
 from .. import models, permissions, schemas
 from ..auth import Principal, requires
 from ..database import get_db
-from ..deps import audit, ensure_ref, get_or_404, snapshot
+from ..deps import audit, branch_filter, ensure_ref, get_or_404, snapshot
 
 router = APIRouter(tags=["incidents"])
 
 WriteDep = Annotated[Principal, Depends(requires(permissions.INCIDENT_WRITE))]
+ReadDep = Annotated[Principal, Depends(requires(permissions.INCIDENT_READ))]
 read_dependency = Depends(requires(permissions.INCIDENT_READ))
 
 
-@router.get("/api/incidents", response_model=list[schemas.IncidentRead], dependencies=[read_dependency])
+@router.get("/api/incidents", response_model=list[schemas.IncidentRead])
 def list_incidents(
+    principal: ReadDep,
     branch_id: str | None = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 200,
     db: Session = Depends(get_db),
 ) -> list[models.Incident]:
     query = select(models.Incident).order_by(models.Incident.occurred_at.desc())
-    if branch_id:
-        query = query.where(models.Incident.branch_id == branch_id)
+    query = branch_filter(query, models.Incident.branch_id, principal, branch_id)
     return db.scalars(query.limit(limit)).all()
 
 

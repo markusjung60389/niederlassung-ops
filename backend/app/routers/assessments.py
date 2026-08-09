@@ -7,28 +7,28 @@ from sqlalchemy.orm import Session
 from .. import models, permissions, schemas
 from ..auth import Principal, requires
 from ..database import get_db
-from ..deps import audit, ensure_ref, get_or_404, snapshot
+from ..deps import audit, branch_filter, ensure_ref, get_or_404, snapshot
 from ..serializers import assessment_read
 
 router = APIRouter(tags=["assessments"])
 
 WriteDep = Annotated[Principal, Depends(requires(permissions.ASSESSMENT_WRITE))]
+ReadDep = Annotated[Principal, Depends(requires(permissions.ASSESSMENT_READ))]
 read_dependency = Depends(requires(permissions.ASSESSMENT_READ))
 
 
 @router.get(
     "/api/branch-assessments",
     response_model=list[schemas.BranchAssessmentRead],
-    dependencies=[read_dependency],
 )
 def list_branch_assessments(
+    principal: ReadDep,
     branch_id: str | None = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 200,
     db: Session = Depends(get_db),
 ) -> list[schemas.BranchAssessmentRead]:
     query = select(models.BranchAssessment).order_by(models.BranchAssessment.assessment_date.desc())
-    if branch_id:
-        query = query.where(models.BranchAssessment.branch_id == branch_id)
+    query = branch_filter(query, models.BranchAssessment.branch_id, principal, branch_id)
     return [assessment_read(item) for item in db.scalars(query.limit(limit)).all()]
 
 

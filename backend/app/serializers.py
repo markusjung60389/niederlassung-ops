@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import false as sa_false, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from . import models, permissions, readiness, schemas
@@ -81,6 +81,10 @@ def record_read(record: models.ComplianceRecord) -> schemas.ComplianceRecordRead
         title=record.title,
         category=record.category,
         branch_id=record.branch_id,
+        rule_id=record.rule_id,
+        # "group" or "branch": the list shows where an obligation comes from,
+        # which decides whether the branch may change it or has to ask.
+        rule_scope=None if record.rule is None else ("branch" if record.rule.branch_id else "group"),
         scope_type=record.scope_type,
         scope_id=record.scope_id,
         status=record.status,
@@ -124,6 +128,8 @@ def vehicle_read(vehicle: models.Vehicle) -> schemas.VehicleRead:
         assigned_employee_name=(
             vehicle.assigned_employee.full_name if vehicle.assigned_employee else None
         ),
+        current_branch_name=vehicle.current_branch.name if vehicle.current_branch else None,
+        location_branch_id=vehicle.location_branch_id,
         due_state=first.tone if first else "green",
         next_due_title=first.title if first else None,
         next_due_date=first.due_date if first else None,
@@ -131,8 +137,18 @@ def vehicle_read(vehicle: models.Vehicle) -> schemas.VehicleRead:
     )
 
 
-def employee_read(employee: models.Employee) -> schemas.EmployeeRead:
-    states = readiness.requirement_states(employee)
+def employee_read(
+    employee: models.Employee,
+    branch_id: str | None = None,
+    overrides: dict[tuple[str, str], models.RequirementOverride] | None = None,
+) -> schemas.EmployeeRead:
+    """The employee as one branch sees them.
+
+    Deployability depends on where the person works: an exception granted in
+    one branch does not travel. Without a branch the home branch is used.
+    """
+    target = branch_id or employee.branch_id
+    states = readiness.requirement_states(employee, target, overrides)
     level = readiness.readiness_of(states)
     due_items = readiness.employee_due_items(employee, states)
     first = due_items[0] if due_items else None
@@ -164,6 +180,8 @@ def employee_read(employee: models.Employee) -> schemas.EmployeeRead:
         qualifications=[qualification_read(item) for item in employee.qualifications],
         profile=profile_read(employee.profile),
         requirements=[schemas.RequirementStateRead(**vars(item)) for item in states],
+        branch_ids=sorted(employee.assigned_branch_ids),
+        readiness_by_branch=readiness.readiness_by_branch(employee, overrides),
         readiness=level,
         due_state=tone,
         open_requirements=sum(1 for item in states if item.open),
@@ -211,7 +229,7 @@ def reminder_item(
 
 def build_reminders(
     db: Session,
-    branch_id: str | None = None,
+    branch_ids: list[str] | None = None,
     *,
     include_personnel: bool = True,
     include_fleet: bool = True,
@@ -224,16 +242,10 @@ def build_reminders(
     reminders: list[schemas.ReminderRead] = []
 
     if include_personnel:
-        employee_query = (
-            select(models.Employee)
-            .where(models.Employee.status == "active")
-            .options(
-                selectinload(models.Employee.profile), selectinload(models.Employee.qualifications)
-            )
-        )
-        if branch_id:
-            employee_query = employee_query.where(models.Employee.branch_id == branch_id)
-        for employee in db.scalars(employee_query).all():
+        # People deployed here count too, so a borrowed colleague does not fall
+        # through the gap between two branches.
+        people = employee_query(branch_ids).where(models.Employee.status == "active")
+        for employee in db.scalars(people).all():
             profile = employee.profile
             if profile:
                 # Only the person's own contractual dates live here. The
@@ -264,10 +276,19 @@ def build_reminders(
                     reminders.append(item)
 
     if include_fleet:
-        vehicle_query = select(models.Vehicle)
-        if branch_id:
-            vehicle_query = vehicle_query.where(models.Vehicle.branch_id == branch_id)
-        for vehicle in db.scalars(vehicle_query).all():
+        # A vehicle is due where it stands, not where it is registered.
+        vehicles = select(models.Vehicle)
+        if branch_ids is not None:
+            vehicles = (
+                vehicles.where(sa_false())
+                if not branch_ids
+                else vehicles.where(
+                    func.coalesce(models.Vehicle.current_branch_id, models.Vehicle.branch_id).in_(
+                        branch_ids
+                    )
+                )
+            )
+        for vehicle in db.scalars(vehicles).all():
             label = vehicle.license_plate
             candidates = [
                 ("HU faellig", vehicle.hu_due_date),
@@ -287,7 +308,7 @@ def build_reminders(
 def reminders_for(db: Session, principal: Principal, branch_id: str | None = None):
     return build_reminders(
         db,
-        branch_id,
+        principal.scope(branch_id),
         include_personnel=principal.has(permissions.PERSONNEL_READ),
         include_fleet=principal.has(permissions.FLEET_READ),
     )
@@ -301,6 +322,7 @@ EMPLOYEE_LOAD_OPTIONS = (
     selectinload(models.Employee.qualifications),
     selectinload(models.Employee.profile),
     selectinload(models.Employee.job_role).selectinload(models.JobRole.requirements),
+    selectinload(models.Employee.branch_links),
 )
 
 VEHICLE_LOAD_OPTIONS = (
@@ -308,24 +330,41 @@ VEHICLE_LOAD_OPTIONS = (
 )
 
 
-def employee_query(branch_id: str | None = None, include_inactive: bool = False):
+def employee_query(branch_ids: list[str] | None = None, include_inactive: bool = False):
+    """Employees of the given branches, home branch or deployment.
+
+    `None` means no restriction; an empty list means nothing, which is what a
+    request for a branch outside the caller's scope has to yield.
+    """
     query = select(models.Employee).options(*EMPLOYEE_LOAD_OPTIONS)
-    if branch_id:
-        query = query.where(models.Employee.branch_id == branch_id)
+    if branch_ids is not None:
+        if not branch_ids:
+            query = query.where(sa_false())
+        else:
+            deployed = select(models.EmployeeBranch.employee_id).where(
+                models.EmployeeBranch.branch_id.in_(branch_ids)
+            )
+            query = query.where(
+                or_(
+                    models.Employee.branch_id.in_(branch_ids),
+                    models.Employee.id.in_(deployed),
+                )
+            )
     if not include_inactive:
         query = query.where(models.Employee.status == "active")
     return query.order_by(models.Employee.full_name.asc())
 
 
 def qualification_matrix(
-    db: Session, branch_id: str | None = None
+    db: Session, branch_ids: list[str] | None = None, branch_id: str | None = None
 ) -> schemas.QualificationMatrix:
-    """Employees against qualification types.
+    """Employees against qualification types, seen from one branch.
 
     Only the types that at least one function actually requires are shown -
     a matrix listing every catalogue entry would be mostly empty columns.
     """
-    employees = db.scalars(employee_query(branch_id)).all()
+    employees = db.scalars(employee_query(branch_ids)).all()
+    overrides = readiness.load_overrides(db)
     required_ids = {
         requirement.qualification_type_id
         for employee in employees
@@ -340,7 +379,11 @@ def qualification_matrix(
 
     rows = []
     for employee in employees:
-        states = {item.qualification_type_id: item for item in readiness.requirement_states(employee)}
+        target = branch_id or employee.branch_id
+        states = {
+            item.qualification_type_id: item
+            for item in readiness.requirement_states(employee, target, overrides)
+        }
         rows.append(
             schemas.MatrixRow(
                 employee_id=employee.id,

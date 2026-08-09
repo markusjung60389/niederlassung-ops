@@ -1,20 +1,38 @@
-from sqlalchemy import select
+import logging
+from datetime import datetime, timezone
+
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from . import catalog, models, permissions
+from . import catalog, models, permissions, security
+from .config import settings
+
+logger = logging.getLogger(__name__)
 
 ROLE_IDS = {
+    permissions.ROLE_ADMIN: "role-admin",
+    permissions.ROLE_AREA_MANAGER: "role-area-manager",
     permissions.ROLE_BRANCH_MANAGER: "role-branch-manager",
     permissions.ROLE_HSE: "role-hse",
     permissions.ROLE_VIEWER: "role-viewer",
 }
 
 
+ROLE_DESCRIPTIONS = {
+    permissions.ROLE_ADMIN: "Verwaltung des Werkzeugs: Konten, Rollen, Notfallzugang.",
+    permissions.ROLE_AREA_MANAGER: "Verantwortet mehrere Niederlassungen, setzt Gruppenvorgaben.",
+    permissions.ROLE_BRANCH_MANAGER: "Fuehrt eine Niederlassung; volle Fachrechte vor Ort.",
+    permissions.ROLE_HSE: "Arbeitssicherheit und Compliance ueber die Standorte hinweg.",
+    permissions.ROLE_VIEWER: "Liest mit, aendert nichts.",
+}
+
+
 def seed_roles(db: Session) -> dict[str, models.Role]:
     """Creates the role presets and keeps their permissions in sync.
 
-    Roles are system defined, so the preset is authoritative: a deployment that
+    The presets are system defined and authoritative: a deployment that
     upgrades to a new permission catalogue picks the change up on restart.
+    Roles created in the user administration are not touched here.
     """
     roles: dict[str, models.Role] = {}
     for name, preset in permissions.ROLE_PRESETS.items():
@@ -24,9 +42,53 @@ def seed_roles(db: Session) -> dict[str, models.Role]:
             db.add(role)
         elif sorted(role.permissions or []) != sorted(preset):
             role.permissions = list(preset)
+        role.system = True
+        role.description = role.description or ROLE_DESCRIPTIONS.get(name)
         roles[name] = role
     db.flush()
     return roles
+
+
+def seed_admin_account(db: Session, roles: dict[str, models.Role]) -> None:
+    """Creates the emergency administrator on an installation that has none.
+
+    Not a convenience: without it, an installation whose Entra ID registration
+    is wrong has nobody who can fix it. The start password comes from
+    ADMIN_INITIAL_PASSWORD and has to be replaced at the first login - until
+    then the API answers nothing but the change itself.
+
+    Runs once. An existing account is never given a password back, so removing
+    the local login stays removed.
+    """
+    email = settings.admin_email.strip().lower()
+    existing = db.scalar(select(models.User).where(func.lower(models.User.email) == email))
+    if existing is not None:
+        return
+    # Somebody may have renamed the account; a second administrator is not
+    # created behind their back.
+    if db.scalar(
+        select(func.count(models.User.id)).where(models.User.role_id == ROLE_IDS[permissions.ROLE_ADMIN])
+    ):
+        return
+
+    db.add(
+        models.User(
+            id="user-admin",
+            display_name=settings.admin_display_name,
+            email=email,
+            role=roles[permissions.ROLE_ADMIN],
+            all_branches=True,
+            password_hash=security.hash_password(settings.admin_initial_password),
+            password_changed_at=datetime.now(timezone.utc),
+            must_change_password=True,
+        )
+    )
+    db.flush()
+    logger.warning(
+        "Notfall-Administrator '%s' angelegt. Das Startpasswort muss bei der ersten "
+        "Anmeldung geaendert werden.",
+        email,
+    )
 
 
 def seed_qualification_types(db: Session) -> None:
@@ -98,28 +160,75 @@ def link_employees_to_job_roles(db: Session) -> None:
     db.flush()
 
 
+def link_users_to_branches(db: Session) -> None:
+    """Gives an account without any branch its home branch.
+
+    An account with no link and without `all_branches` sees nothing at all, so
+    an installation that predates the branch scoping would lock its users out
+    on the first start after the upgrade.
+    """
+    branch = db.scalar(select(models.Branch).order_by(models.Branch.created_at.asc()))
+    if branch is None:
+        return
+    linked = set(db.scalars(select(models.UserBranch.user_id)).all())
+    for user in db.scalars(select(models.User)).all():
+        if user.all_branches or user.id in linked:
+            continue
+        db.add(models.UserBranch(user_id=user.id, branch_id=branch.id))
+    db.flush()
+
+
 def seed_base_data(db: Session) -> None:
     roles = seed_roles(db)
     seed_qualification_types(db)
     seed_job_roles(db)
 
     if db.scalar(select(models.Branch).limit(1)) is None:
-        db.add(models.Branch(id="branch-remscheid", name="Remscheid", location="Remscheid"))
+        db.add(
+            models.Branch(id="branch-remscheid", name="Remscheid", location="Remscheid", code="RS")
+        )
 
+    # Further branches are not seeded: their names, codes and managers are the
+    # organisation's, not this file's. The area manager creates them under
+    # Niederlassungen, and every group-wide rule reaches them from that moment.
     accounts = [
+        (
+            "user-area-manager",
+            "Bereichsleitung",
+            "bereichsleitung@example.local",
+            permissions.ROLE_AREA_MANAGER,
+            True,
+        ),
         (
             "user-branch-manager",
             "Niederlassungsleitung Remscheid",
             "leitung.remscheid@example.local",
             permissions.ROLE_BRANCH_MANAGER,
+            False,
         ),
-        ("user-hse", "HSE Verantwortliche", "hse.remscheid@example.local", permissions.ROLE_HSE),
-        ("user-viewer", "Betrachter Remscheid", "betrachter.remscheid@example.local", permissions.ROLE_VIEWER),
+        ("user-hse", "HSE Verantwortliche", "hse.remscheid@example.local", permissions.ROLE_HSE, False),
+        (
+            "user-viewer",
+            "Betrachter Remscheid",
+            "betrachter.remscheid@example.local",
+            permissions.ROLE_VIEWER,
+            False,
+        ),
     ]
-    for user_id, display_name, email, role_name in accounts:
+    for user_id, display_name, email, role_name, all_branches in accounts:
         if db.get(models.User, user_id) is None:
-            db.add(models.User(id=user_id, display_name=display_name, email=email, role=roles[role_name]))
+            db.add(
+                models.User(
+                    id=user_id,
+                    display_name=display_name,
+                    email=email,
+                    role=roles[role_name],
+                    all_branches=all_branches,
+                )
+            )
 
     db.flush()
+    seed_admin_account(db, roles)
+    link_users_to_branches(db)
     link_employees_to_job_roles(db)
     db.commit()

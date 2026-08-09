@@ -9,13 +9,14 @@ from sqlalchemy.orm import Session, selectinload
 from .. import models, permissions, schemas, storage
 from ..auth import Principal, requires
 from ..database import get_db
-from ..deps import audit, ensure_ref, get_or_404, snapshot
+from ..deps import audit, branch_filter, ensure_branch_access, ensure_ref, get_or_404, snapshot
 from ..jobs import schedule_next_cycle
 from ..serializers import action_read, load_record, record_read
 
 router = APIRouter(tags=["compliance"])
 
 WriteDep = Annotated[Principal, Depends(requires(permissions.COMPLIANCE_WRITE))]
+ReadDep = Annotated[Principal, Depends(requires(permissions.COMPLIANCE_READ))]
 read_dependency = Depends(requires(permissions.COMPLIANCE_READ))
 
 
@@ -24,12 +25,9 @@ read_dependency = Depends(requires(permissions.COMPLIANCE_READ))
 # --------------------------------------------------------------------------
 
 
-@router.get(
-    "/api/compliance-records",
-    response_model=list[schemas.ComplianceRecordRead],
-    dependencies=[read_dependency],
-)
+@router.get("/api/compliance-records", response_model=list[schemas.ComplianceRecordRead])
 def list_compliance_records(
+    principal: ReadDep,
     branch_id: str | None = None,
     owner_user_id: str | None = None,
     status_filter: Annotated[str | None, Query(alias="status")] = None,
@@ -42,8 +40,7 @@ def list_compliance_records(
     query = select(models.ComplianceRecord).options(
         selectinload(models.ComplianceRecord.evidence), selectinload(models.ComplianceRecord.actions)
     )
-    if branch_id:
-        query = query.where(models.ComplianceRecord.branch_id == branch_id)
+    query = branch_filter(query, models.ComplianceRecord.branch_id, principal, branch_id)
     if owner_user_id:
         query = query.where(models.ComplianceRecord.owner_user_id == owner_user_id)
     if status_filter:
@@ -255,16 +252,22 @@ def add_action(
     return action_read(action)
 
 
-@router.get(
-    "/api/actions", response_model=list[schemas.ComplianceActionRead], dependencies=[read_dependency]
-)
+@router.get("/api/actions", response_model=list[schemas.ComplianceActionRead])
 def list_actions(
+    principal: ReadDep,
+    branch_id: str | None = None,
     status_filter: Annotated[str | None, Query(alias="status")] = None,
     owner_user_id: str | None = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 200,
     db: Session = Depends(get_db),
 ) -> list[schemas.ComplianceActionRead]:
-    query = select(models.ComplianceAction)
+    # An action belongs to its record, and the record to a branch: without the
+    # join every branch reads every other branch's open measures.
+    query = select(models.ComplianceAction).join(
+        models.ComplianceRecord,
+        models.ComplianceAction.compliance_record_id == models.ComplianceRecord.id,
+    )
+    query = branch_filter(query, models.ComplianceRecord.branch_id, principal, branch_id)
     if status_filter:
         query = query.where(models.ComplianceAction.status == status_filter)
     if owner_user_id:

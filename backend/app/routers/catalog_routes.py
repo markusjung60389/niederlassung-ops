@@ -8,18 +8,59 @@ a qualification does not need a release.
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select, true as sa_true
 from sqlalchemy.orm import Session, selectinload
 
 from .. import catalog, models, permissions, schemas, serializers
 from ..auth import Principal, requires
 from ..database import get_db
-from ..deps import audit, ensure_ref, get_or_404, guard_children, snapshot
+from ..deps import audit, ensure_branch_access, ensure_ref, get_or_404, guard_children, snapshot
 
 router = APIRouter(tags=["catalog"])
 
 WriteDep = Annotated[Principal, Depends(requires(permissions.PERSONNEL_WRITE))]
+RuleWriteDep = Annotated[Principal, Depends(requires(permissions.RULE_WRITE))]
+ReadDep = Annotated[Principal, Depends(requires(permissions.PERSONNEL_READ))]
 read_dependency = Depends(requires(permissions.PERSONNEL_READ))
+
+
+def scope_condition(column, principal: Principal, branch_id: str | None):
+    """Branch-local rows the caller may see."""
+    allowed = principal.scope(branch_id)
+    return sa_true() if allowed is None else column.in_(allowed or ["-"])
+
+
+def guard_rule_scope(principal: Principal, branch_id: str | None) -> None:
+    """A group-wide rule reaches branches the caller may not be responsible for.
+
+    Branch-local entries stay with the branch manager; only rule:write may
+    create or change something that applies to everyone.
+    """
+    if branch_id is None:
+        if not principal.has(permissions.RULE_WRITE):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Missing permission(s): rule:write for a group-wide entry",
+            )
+        return
+    ensure_branch_access(principal, branch_id)
+
+
+def requirement_scope(job_role: models.JobRole, qualification_type: models.QualificationType) -> str | None:
+    """Which branch a requirement belongs to, None meaning group-wide.
+
+    A requirement only reaches every branch while both sides do. Requiring a
+    branch's own qualification of a group function stays local: readiness skips
+    branch-local types outside their branch anyway, so the requirement is
+    scoped by what it points at rather than by a column of its own.
+    """
+    scopes = {job_role.branch_id, qualification_type.branch_id} - {None}
+    if len(scopes) > 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Function and qualification belong to different branches",
+        )
+    return scopes.pop() if scopes else None
 
 
 # --------------------------------------------------------------------------
@@ -33,11 +74,21 @@ read_dependency = Depends(requires(permissions.PERSONNEL_READ))
     dependencies=[read_dependency],
 )
 def list_qualification_types(
-    include_inactive: bool = False, db: Session = Depends(get_db)
+    principal: ReadDep,
+    branch_id: str | None = None,
+    include_inactive: bool = False,
+    db: Session = Depends(get_db),
 ) -> list[schemas.QualificationTypeRead]:
+    """Group catalogue plus whatever the selected branch added for itself."""
     query = select(models.QualificationType)
     if not include_inactive:
         query = query.where(models.QualificationType.active.is_(True))
+    query = query.where(
+        or_(
+            models.QualificationType.branch_id.is_(None),
+            scope_condition(models.QualificationType.branch_id, principal, branch_id),
+        )
+    )
     types = db.scalars(query.order_by(models.QualificationType.name.asc())).all()
     return [serializers.qualification_type_read(item) for item in types]
 
@@ -54,6 +105,8 @@ def create_qualification_type(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Qualification type '{payload.code}' already exists",
         )
+    guard_rule_scope(principal, payload.branch_id)
+    ensure_ref(db, models.Branch, payload.branch_id, "branch_id")
     kind = models.QualificationType(**payload.model_dump())
     db.add(kind)
     db.flush()
@@ -129,11 +182,21 @@ def _employee_counts(db: Session) -> dict[str, int]:
 
 @router.get("/api/job-roles", response_model=list[schemas.JobRoleRead], dependencies=[read_dependency])
 def list_job_roles(
-    include_inactive: bool = False, db: Session = Depends(get_db)
+    principal: ReadDep,
+    branch_id: str | None = None,
+    include_inactive: bool = False,
+    db: Session = Depends(get_db),
 ) -> list[schemas.JobRoleRead]:
+    """Group functions plus whatever the selected branch added for itself."""
     query = select(models.JobRole).options(selectinload(models.JobRole.requirements))
     if not include_inactive:
         query = query.where(models.JobRole.active.is_(True))
+    query = query.where(
+        or_(
+            models.JobRole.branch_id.is_(None),
+            scope_condition(models.JobRole.branch_id, principal, branch_id),
+        )
+    )
     roles = db.scalars(query.order_by(models.JobRole.name.asc())).all()
     counts = _employee_counts(db)
     return [serializers.job_role_read(role, counts.get(role.id, 0)) for role in roles]
@@ -147,6 +210,8 @@ def create_job_role(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=f"Function '{payload.name}' already exists"
         )
+    guard_rule_scope(principal, payload.branch_id)
+    ensure_ref(db, models.Branch, payload.branch_id, "branch_id")
     role = models.JobRole(**payload.model_dump())
     db.add(role)
     db.flush()
@@ -190,6 +255,13 @@ def create_requirement(
 ) -> schemas.JobRoleRequirementRead:
     ensure_ref(db, models.JobRole, payload.job_role_id, "job_role_id")
     ensure_ref(db, models.QualificationType, payload.qualification_type_id, "qualification_type_id")
+    guard_rule_scope(
+        principal,
+        requirement_scope(
+            db.get(models.JobRole, payload.job_role_id),
+            db.get(models.QualificationType, payload.qualification_type_id),
+        ),
+    )
     duplicate = db.scalar(
         select(models.JobRoleRequirement).where(
             models.JobRoleRequirement.job_role_id == payload.job_role_id,
@@ -222,6 +294,9 @@ def update_requirement(
     db: Session = Depends(get_db),
 ) -> schemas.JobRoleRequirementRead:
     requirement = get_or_404(db, models.JobRoleRequirement, requirement_id, "Requirement")
+    guard_rule_scope(
+        principal, requirement_scope(requirement.job_role, requirement.qualification_type)
+    )
     changes = payload.model_dump(exclude_unset=True)
     before = {field: getattr(requirement, field) for field in changes}
     for field, value in changes.items():
@@ -244,6 +319,9 @@ def delete_requirement(
     requirement_id: str, principal: WriteDep, db: Session = Depends(get_db)
 ) -> Response:
     requirement = get_or_404(db, models.JobRoleRequirement, requirement_id, "Requirement")
+    guard_rule_scope(
+        principal, requirement_scope(requirement.job_role, requirement.qualification_type)
+    )
     audit(db, "job_role_requirement", requirement_id, "deleted", snapshot(requirement), principal)
     db.delete(requirement)
     db.commit()
@@ -261,9 +339,9 @@ def delete_requirement(
     dependencies=[read_dependency],
 )
 def get_matrix(
-    branch_id: str | None = None, db: Session = Depends(get_db)
+    principal: ReadDep, branch_id: str | None = None, db: Session = Depends(get_db)
 ) -> schemas.QualificationMatrix:
-    return serializers.qualification_matrix(db, branch_id)
+    return serializers.qualification_matrix(db, principal.scope(branch_id), branch_id)
 
 
 @router.get(

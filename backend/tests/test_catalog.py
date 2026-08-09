@@ -2,8 +2,9 @@
 
 from datetime import date, timedelta
 
-from tests.conftest import MANAGER, VIEWER, auth
+from tests.conftest import AREA_MANAGER, BRANCH, MANAGER, VIEWER, auth
 from tests.test_readiness import (
+    HEALTH,
     IPAF,
     INSTRUCTION,
     MONTEUR,
@@ -48,6 +49,9 @@ def test_a_branch_can_add_its_own_qualification_and_require_it(client):
             "category": "training",
             "validity_months": 12,
             "reminder_days": 30,
+            # The branch's own entry. Without a branch it would be a group-wide
+            # obligation, which the branch manager may not declare.
+            "branch_id": BRANCH,
         },
     )
     assert created.status_code == 201, created.text
@@ -73,10 +77,22 @@ def test_a_branch_can_add_its_own_qualification_and_require_it(client):
 def test_the_same_requirement_cannot_be_added_twice(client):
     duplicate = client.post(
         "/api/job-role-requirements",
-        headers=auth(MANAGER),
+        headers=auth(AREA_MANAGER),
         json={"job_role_id": MONTEUR, "qualification_type_id": IPAF},
     )
     assert duplicate.status_code == 409
+
+
+def test_a_branch_manager_cannot_change_the_group_matrix(client):
+    """The group requirements are the area manager's; the branch takes an
+    exception instead, which is visible and revocable."""
+    response = client.post(
+        "/api/job-role-requirements",
+        headers=auth(MANAGER),
+        json={"job_role_id": MONTEUR, "qualification_type_id": HEALTH},
+    )
+    assert response.status_code == 403
+    assert "rule:write" in response.json()["detail"]
 
 
 def test_a_qualification_type_in_use_cannot_be_deleted(client):
