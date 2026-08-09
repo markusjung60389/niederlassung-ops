@@ -222,3 +222,87 @@ def test_models_match_migrations(tmp_path):
     _alembic(url, "upgrade", "head")
     result = _run(["-m", "alembic", "check"], url)
     assert result.returncode == 0, f"models drifted from migrations:\n{result.stdout}\n{result.stderr}"
+
+
+def test_profile_dates_are_copied_into_qualifications_and_originals_survive(legacy_db):
+    """Migration 0004 copies the training dates; it must not move them.
+
+    If the mapping is wrong for a branch, the values are still in the profile
+    and can be corrected without a restore.
+    """
+    engine, url = legacy_db
+    _make_legacy_database(url, engine)
+    with engine.begin() as connection:
+        connection.execute(
+            sa.text(
+                "UPDATE employee_profiles SET "
+                "driver_license_last_check = '2026-01-10', driver_license_next_check = '2026-07-10', "
+                "first_aid_last_course = '2025-03-01', first_aid_valid_until = '2027-03-01', "
+                "ipaf_valid_until = '2029-05-01', general_instruction_next = '2026-11-01', "
+                "occupational_health_next = '2028-02-01' "
+                "WHERE employee_id = 'e1'"
+            )
+        )
+
+    assert _init_db(url) == HEAD
+
+    with engine.connect() as connection:
+        rows = connection.execute(
+            sa.text(
+                "SELECT qualification_type_id, issued_on, valid_until FROM employee_qualifications "
+                "WHERE employee_id = 'e1' ORDER BY qualification_type_id"
+            )
+        ).mappings().all()
+        copied = {row["qualification_type_id"]: row for row in rows}
+
+        assert set(copied) == {
+            "qt-arbeitsmedizin",
+            "qt-erste-hilfe",
+            "qt-fuehrerschein-kontrolle",
+            "qt-ipaf",
+            "qt-unterweisung",
+        }
+        assert copied["qt-fuehrerschein-kontrolle"]["valid_until"] == "2026-07-10"
+        assert copied["qt-fuehrerschein-kontrolle"]["issued_on"] == "2026-01-10"
+        assert copied["qt-erste-hilfe"]["issued_on"] == "2025-03-01"
+
+        # The source columns are untouched.
+        profile = connection.execute(
+            sa.text("SELECT * FROM employee_profiles WHERE employee_id = 'e1'")
+        ).mappings().one()
+        assert profile["driver_license_next_check"] == "2026-07-10"
+        assert profile["ipaf_valid_until"] == "2029-05-01"
+
+
+def test_free_text_role_is_linked_to_the_matching_function(legacy_db):
+    engine, url = legacy_db
+    _make_legacy_database(url, engine)
+    with engine.begin() as connection:
+        connection.execute(sa.text("UPDATE employees SET role = 'Servicetechniker' WHERE id = 'e1'"))
+
+    _init_db(url)
+
+    with engine.connect() as connection:
+        employee = connection.execute(sa.text("SELECT * FROM employees WHERE id = 'e1'")).mappings().one()
+        assert employee["job_role_id"] == "jr-service-techniker"
+        # The original free text is kept as the fallback label.
+        assert employee["role"] == "Servicetechniker"
+        assert employee["status"] == "active"
+
+
+def test_downgrade_keeps_the_profile_dates_the_copy_came_from(legacy_db):
+    engine, url = legacy_db
+    _make_legacy_database(url, engine)
+    with engine.begin() as connection:
+        connection.execute(
+            sa.text("UPDATE employee_profiles SET ipaf_valid_until = '2029-05-01' WHERE employee_id = 'e1'")
+        )
+    _init_db(url)
+
+    _alembic(url, "downgrade", "0003_sales")
+
+    with engine.connect() as connection:
+        profile = connection.execute(
+            sa.text("SELECT * FROM employee_profiles WHERE employee_id = 'e1'")
+        ).mappings().one()
+        assert profile["ipaf_valid_until"] == "2029-05-01"

@@ -9,7 +9,8 @@ from .. import crud, models, permissions, schemas, storage
 from ..auth import Principal, requires
 from ..database import get_db
 from ..deps import audit, ensure_ref, get_or_404, guard_children, snapshot
-from ..serializers import employee_read, profile_read, qualification_read
+from ..domain import add_months
+from ..serializers import employee_query, employee_read, profile_read, qualification_read
 
 router = APIRouter(tags=["personnel"])
 
@@ -25,15 +26,12 @@ read_dependency = Depends(requires(permissions.PERSONNEL_READ))
 @router.get("/api/employees", response_model=list[schemas.EmployeeRead], dependencies=[read_dependency])
 def list_employees(
     branch_id: str | None = None,
+    include_inactive: bool = False,
     limit: Annotated[int, Query(ge=1, le=500)] = 200,
     db: Session = Depends(get_db),
 ) -> list[schemas.EmployeeRead]:
-    query = select(models.Employee).options(
-        selectinload(models.Employee.qualifications), selectinload(models.Employee.profile)
-    )
-    if branch_id:
-        query = query.where(models.Employee.branch_id == branch_id)
-    employees = db.scalars(query.order_by(models.Employee.full_name.asc()).limit(limit)).all()
+    query = employee_query(branch_id, include_inactive=include_inactive)
+    employees = db.scalars(query.limit(limit)).all()
     return [employee_read(employee) for employee in employees]
 
 
@@ -42,6 +40,7 @@ def create_employee(
     payload: schemas.EmployeeCreate, principal: WriteDep, db: Session = Depends(get_db)
 ) -> schemas.EmployeeRead:
     ensure_ref(db, models.Branch, payload.branch_id, "branch_id")
+    ensure_ref(db, models.JobRole, payload.job_role_id, "job_role_id")
     employee = models.Employee(**payload.model_dump())
     db.add(employee)
     db.flush()
@@ -67,6 +66,8 @@ def update_employee(
 ) -> schemas.EmployeeRead:
     employee = get_or_404(db, models.Employee, employee_id, "Employee")
     changes = payload.model_dump(exclude_unset=True)
+    if "job_role_id" in changes:
+        ensure_ref(db, models.JobRole, changes["job_role_id"], "job_role_id")
     before = {field: getattr(employee, field) for field in changes}
     for field, value in changes.items():
         setattr(employee, field, value)
@@ -108,6 +109,33 @@ def delete_employee(employee_id: str, principal: WriteDep, db: Session = Depends
 # --------------------------------------------------------------------------
 
 
+def apply_catalogue_defaults(db: Session, values: dict) -> dict:
+    """Fills in what the catalogue already knows.
+
+    A course entered on 12.09. with a two-year validity should not require the
+    user to work out the expiry date; getting that arithmetic wrong is exactly
+    how a certificate silently lapses. The label and the reminder window come
+    from the catalogue for the same reason.
+    """
+    type_id = values.get("qualification_type_id")
+    if not type_id:
+        return values
+    kind = db.get(models.QualificationType, type_id)
+    if kind is None:
+        return values
+
+    if not values.get("title"):
+        values["title"] = kind.name
+    if not values.get("qualification_type"):
+        values["qualification_type"] = kind.code
+    values["reminder_days"] = kind.reminder_days
+
+    issued = values.get("issued_on")
+    if values.get("valid_until") is None and issued and kind.validity_months:
+        values["valid_until"] = add_months(issued, kind.validity_months)
+    return values
+
+
 @router.get(
     "/api/employee-qualifications",
     response_model=list[schemas.EmployeeQualificationRead],
@@ -131,7 +159,9 @@ def create_qualification(
 ) -> schemas.EmployeeQualificationRead:
     ensure_ref(db, models.Employee, payload.employee_id, "employee_id")
     ensure_ref(db, models.Document, payload.document_id, "document_id")
-    qualification = models.EmployeeQualification(**payload.model_dump())
+    ensure_ref(db, models.QualificationType, payload.qualification_type_id, "qualification_type_id")
+    values = apply_catalogue_defaults(db, payload.model_dump())
+    qualification = models.EmployeeQualification(**values)
     db.add(qualification)
     db.flush()
     audit(
@@ -154,6 +184,21 @@ def update_qualification(
     qualification = get_or_404(db, models.EmployeeQualification, qualification_id, "Qualification")
     changes = payload.model_dump(exclude_unset=True)
     ensure_ref(db, models.Document, changes.get("document_id"), "document_id")
+    ensure_ref(db, models.QualificationType, changes.get("qualification_type_id"), "qualification_type_id")
+    # Recompute the expiry from the catalogue when a new course date arrives
+    # without an explicit one.
+    if "issued_on" in changes and "valid_until" not in changes:
+        merged = {
+            "qualification_type_id": changes.get(
+                "qualification_type_id", qualification.qualification_type_id
+            ),
+            "issued_on": changes["issued_on"],
+            "title": qualification.title,
+            "qualification_type": qualification.qualification_type,
+        }
+        derived = apply_catalogue_defaults(db, merged)
+        if derived.get("valid_until"):
+            changes["valid_until"] = derived["valid_until"]
     before = {field: getattr(qualification, field) for field in changes}
     for field, value in changes.items():
         setattr(qualification, field, value)

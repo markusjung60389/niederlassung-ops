@@ -33,7 +33,7 @@ def test_expired_qualification_appears_in_cockpit(client):
     titles = [item["title"] for item in cockpit["expiring_qualifications"]]
     assert "IPAF Schein" in titles
 
-    metric = next(m for m in cockpit["metrics"] if m["label"] == "Expiring qualifications")
+    metric = next(m for m in cockpit["metrics"] if m["label"] == "Ablaufende Qualifikationen")
     assert metric["value"] == 1
     assert metric["state"] == "red"
 
@@ -43,7 +43,7 @@ def test_upcoming_qualification_is_yellow_not_red(client):
     _add_qualification(client, employee_id, date.today() + timedelta(days=10))
 
     cockpit = client.get("/api/cockpit", headers=auth(MANAGER)).json()
-    metric = next(m for m in cockpit["metrics"] if m["label"] == "Expiring qualifications")
+    metric = next(m for m in cockpit["metrics"] if m["label"] == "Ablaufende Qualifikationen")
     assert metric["value"] == 1
     assert metric["state"] == "yellow"
 

@@ -2,7 +2,7 @@
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 ComplianceCategory = Literal[
@@ -256,29 +256,137 @@ class IncidentRead(IncidentCreate):
     model_config = ConfigDict(from_attributes=True)
 
 
+class QualificationTypeCreate(BaseModel):
+    code: str = Field(min_length=2, max_length=60)
+    name: str = Field(min_length=2, max_length=180)
+    category: str = Field(default="qualification", max_length=60)
+    validity_months: int | None = Field(default=None, ge=1, le=600)
+    reminder_days: int = Field(default=60, ge=1, le=365)
+    evidence_required: bool = True
+    legal_basis: str | None = Field(default=None, max_length=200)
+    description: str | None = None
+    active: bool = True
+
+
+class QualificationTypeUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=180)
+    category: str | None = Field(default=None, max_length=60)
+    validity_months: int | None = Field(default=None, ge=1, le=600)
+    reminder_days: int | None = Field(default=None, ge=1, le=365)
+    evidence_required: bool | None = None
+    legal_basis: str | None = Field(default=None, max_length=200)
+    description: str | None = None
+    active: bool | None = None
+
+
+class QualificationTypeRead(QualificationTypeCreate):
+    id: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class JobRoleRequirementCreate(BaseModel):
+    job_role_id: str
+    qualification_type_id: str
+    mandatory: bool = True
+    note: str | None = None
+
+
+class JobRoleRequirementUpdate(BaseModel):
+    mandatory: bool | None = None
+    note: str | None = None
+
+
+class JobRoleRequirementRead(BaseModel):
+    id: str
+    job_role_id: str
+    qualification_type_id: str
+    mandatory: bool
+    note: str | None = None
+    qualification_name: str
+    qualification_code: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class JobRoleCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    description: str | None = None
+    active: bool = True
+
+
+class JobRoleUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=120)
+    description: str | None = None
+    active: bool | None = None
+
+
+class JobRoleRead(JobRoleCreate):
+    id: str
+    requirements: list[JobRoleRequirementRead] = []
+    employee_count: int = 0
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class EmployeeQualificationCreate(BaseModel):
     employee_id: str
-    title: str = Field(min_length=2, max_length=180)
-    qualification_type: str = Field(min_length=2, max_length=80)
+    # Both are filled from the catalogue when `qualification_type_id` is given,
+    # so selecting a catalogue entry is enough. Free-form entries still need a
+    # title; that is enforced in the validator below rather than by the field,
+    # which would otherwise make catalogue use needlessly wordy.
+    title: str | None = Field(default=None, min_length=2, max_length=180)
+    qualification_type: str | None = Field(default=None, min_length=2, max_length=80)
+    qualification_type_id: str | None = None
+    issued_on: date | None = None
     valid_until: date | None = None
     document_id: str | None = None
     reminder_days: int = Field(default=30, ge=1, le=365)
 
+    @model_validator(mode="after")
+    def require_a_title_or_a_catalogue_entry(self) -> "EmployeeQualificationCreate":
+        if not self.qualification_type_id and not (self.title and self.qualification_type):
+            raise ValueError(
+                "Either qualification_type_id, or both title and qualification_type, must be given"
+            )
+        return self
+
 
 class EmployeeQualificationRead(EmployeeQualificationCreate):
     id: str
+    # Always set once stored: either given or taken from the catalogue.
+    title: str
+    qualification_type: str
     due_state: str
     overdue: bool
 
     model_config = ConfigDict(from_attributes=True)
 
 
+class RequirementStateRead(BaseModel):
+    """One line of the qualification matrix: what the function needs vs. what is on file."""
+
+    qualification_type_id: str
+    code: str
+    name: str
+    category: str
+    mandatory: bool
+    state: str
+    valid_until: date | None = None
+    issued_on: date | None = None
+    qualification_id: str | None = None
+    has_evidence: bool = False
+
+
 class EmployeeCreate(BaseModel):
     branch_id: str
     full_name: str = Field(min_length=2, max_length=160)
     role: str = Field(min_length=2, max_length=120)
+    job_role_id: str | None = None
     team: str | None = None
     start_date: date | None = None
+    status: str = Field(default="active", max_length=20)
+    exit_date: date | None = None
     first_aider: bool = False
     skills: list[str] = Field(default_factory=list)
     notes: str | None = None
@@ -286,8 +394,16 @@ class EmployeeCreate(BaseModel):
 
 class EmployeeRead(EmployeeCreate):
     id: str
+    job_role_name: str | None = None
     qualifications: list[EmployeeQualificationRead] = []
     profile: EmployeeProfileRead | None = None
+    # Derived, never stored: deployability and the next date to act on.
+    requirements: list[RequirementStateRead] = []
+    readiness: str = "ready"
+    due_state: str = "green"
+    open_requirements: int = 0
+    next_due_title: str | None = None
+    next_due_date: date | None = None
 
     model_config = ConfigDict(from_attributes=True)
 class EmployeeProfileCreate(BaseModel):
@@ -352,6 +468,12 @@ class VehicleRead(VehicleCreate):
     id: str
     created_at: datetime
     updated_at: datetime
+    # Derived, never stored.
+    assigned_employee_name: str | None = None
+    due_state: str = "green"
+    next_due_title: str | None = None
+    next_due_date: date | None = None
+    driver_alert: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -404,6 +526,15 @@ class CockpitMetric(BaseModel):
     state: str = "green"
 
 
+class FirstAiderStatus(BaseModel):
+    """Trained first aiders against the DGUV Vorschrift 1 minimum."""
+
+    headcount: int
+    trained: int
+    required: int
+    state: str
+
+
 class CockpitResponse(BaseModel):
     metrics: list[CockpitMetric]
     overdue_compliance: list[ComplianceRecordRead]
@@ -416,6 +547,50 @@ class CockpitResponse(BaseModel):
     service_due_count: int
     vehicle_due_count: int
     employee_due_count: int
+    blocked_employees: int = 0
+    limited_employees: int = 0
+    first_aiders: FirstAiderStatus | None = None
+
+
+class MatrixCell(BaseModel):
+    qualification_type_id: str
+    state: str
+    mandatory: bool
+    valid_until: date | None = None
+    has_evidence: bool = False
+
+
+class MatrixRow(BaseModel):
+    employee_id: str
+    full_name: str
+    job_role_id: str | None = None
+    job_role_name: str | None = None
+    readiness: str
+    cells: list[MatrixCell]
+
+
+class QualificationMatrix(BaseModel):
+    """Employees against qualification types - the deployability overview."""
+
+    qualification_types: list[QualificationTypeRead]
+    rows: list[MatrixRow]
+
+
+class MonthOutlook(BaseModel):
+    month: str
+    label: str
+    items: list[ReminderRead]
+
+
+class ComplianceTemplateRead(BaseModel):
+    key: str
+    title: str
+    category: str
+    control_type: str
+    recurrence: str
+    legal_basis: str
+    priority: str
+    risk_if_missing: str
 
 
 class AgentComplianceReviewRequest(BaseModel):
@@ -440,8 +615,11 @@ class AgentReviewResponse(BaseModel):
 class EmployeeUpdate(BaseModel):
     full_name: str | None = Field(default=None, min_length=2, max_length=160)
     role: str | None = Field(default=None, min_length=2, max_length=120)
+    job_role_id: str | None = None
     team: str | None = None
     start_date: date | None = None
+    status: str | None = Field(default=None, max_length=20)
+    exit_date: date | None = None
     first_aider: bool | None = None
     skills: list[str] | None = None
     notes: str | None = None
@@ -450,6 +628,8 @@ class EmployeeUpdate(BaseModel):
 class EmployeeQualificationUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=2, max_length=180)
     qualification_type: str | None = Field(default=None, min_length=2, max_length=80)
+    qualification_type_id: str | None = None
+    issued_on: date | None = None
     valid_until: date | None = None
     document_id: str | None = None
     reminder_days: int | None = Field(default=None, ge=1, le=365)

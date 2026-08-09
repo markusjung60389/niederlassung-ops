@@ -8,7 +8,7 @@ from .. import models, permissions, schemas
 from ..auth import Principal, requires
 from ..database import get_db
 from ..deps import audit, ensure_ref, get_or_404, snapshot
-from ..serializers import vehicle_read
+from ..serializers import VEHICLE_LOAD_OPTIONS, vehicle_read
 
 router = APIRouter(tags=["fleet"])
 
@@ -22,7 +22,11 @@ def list_vehicles(
     limit: Annotated[int, Query(ge=1, le=500)] = 200,
     db: Session = Depends(get_db),
 ) -> list[schemas.VehicleRead]:
-    query = select(models.Vehicle).order_by(models.Vehicle.license_plate.asc())
+    query = (
+        select(models.Vehicle)
+        .options(*VEHICLE_LOAD_OPTIONS)
+        .order_by(models.Vehicle.license_plate.asc())
+    )
     if branch_id:
         query = query.where(models.Vehicle.branch_id == branch_id)
     return [vehicle_read(vehicle) for vehicle in db.scalars(query.limit(limit)).all()]
