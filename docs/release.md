@@ -116,10 +116,26 @@ Dasselbe Image laeuft damit in Test und Produktion, ohne neu gebaut zu werden.
 ## Upgrade
 
 ```bash
-export OPS_IMAGE_TAG=v1.1.0
+export OPS_IMAGE_TAG=v1.2.0
 docker compose -f docker-compose.release.yml pull
 docker compose -f docker-compose.release.yml up -d
 ```
+
+Vor dem Upgrade auf **v1.2.0** in die `.env` aufnehmen:
+
+```env
+# Ohne diesen Schluessel verweigert das Backend in Produktion den Start,
+# solange die Passwort-Anmeldung aktiv ist:
+#   python -c "import secrets; print(secrets.token_urlsafe(48))"
+AUTH_SESSION_SECRET=<zufaelliger Wert>
+ADMIN_INITIAL_PASSWORD=BSchmitt-Ops-2026!
+```
+
+Beim ersten Start entsteht der Notfallzugang `admin@ops.local`; sein
+Startpasswort muss bei der ersten Anmeldung geaendert werden. Danach kann
+`ADMIN_INITIAL_PASSWORD` wieder aus der `.env` verschwinden. Ausserdem sieht
+nach dem Upgrade zunaechst jedes Konto weiterhin alles - die Einschraenkung auf
+Niederlassungen ist eine bewusste Handlung in der Benutzerverwaltung.
 
 Das Backend fuehrt beim Start `alembic upgrade head` aus. Bestandsdaten werden
 migriert, nicht neu angelegt - auch aus einer Datenbank von vor Einfuehrung der

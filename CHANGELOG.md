@@ -3,7 +3,10 @@
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 Versionierung nach [Semantic Versioning](https://semver.org/lang/de/).
 
-## [Unveroeffentlicht]
+## [1.2.0] - 2026-08-09
+
+Mehrere Niederlassungen, Benutzerverwaltung mit Anmeldung ueber Entra ID und
+Entgeltdaten hinter einer zweiten Bestaetigung.
 
 ### Hinzugefuegt
 
@@ -253,5 +256,6 @@ Erstes Release mit Container-Images auf ghcr.io.
 - Der Worker laeuft als Einzelinstanz ohne Sperren; mehrere Instanzen
   parallel sind nicht vorgesehen.
 
+[1.2.0]: https://github.com/markusjung60389/niederlassung-ops/releases/tag/v1.2.0
 [1.1.0]: https://github.com/markusjung60389/niederlassung-ops/releases/tag/v1.1.0
 [1.0.0]: https://github.com/markusjung60389/niederlassung-ops/releases/tag/v1.0.0
