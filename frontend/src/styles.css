@@ -85,6 +85,25 @@ button {
   gap: 16px;
 }
 
+/* Sign-in card: narrow enough to read as a form rather than a page. */
+.ops-login {
+  display: grid;
+  gap: 14px;
+  width: min(420px, 100%);
+}
+
+/* Permission checkbox with its explanation underneath. */
+.ops-check--block {
+  align-items: flex-start;
+  gap: 10px;
+  padding: 6px 0;
+}
+
+.ops-check--block > span {
+  display: grid;
+  gap: 2px;
+}
+
 .ops-row {
   display: flex;
   flex-wrap: wrap;

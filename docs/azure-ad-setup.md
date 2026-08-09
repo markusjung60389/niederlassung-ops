@@ -13,7 +13,8 @@ angelegt werden muss und welche Schalter danach umgelegt werden.
 | Rollen-Mapping App-Rolle/Gruppe -> lokale Rolle | `backend/app/auth.py` (`_claim_role_names`) | fertig |
 | Just-in-time-Anlage und Verknuepfung per E-Mail | `backend/app/auth.py` (`_resolve_azure_user`) | fertig |
 | Berechtigungspruefung je Endpunkt | `backend/app/permissions.py`, `main.py` | fertig, aktiv |
-| Frontend-Tokenbeschaffung (MSAL) | `frontend/src/auth.ts` | **offen: MSAL fehlt** |
+| Frontend-Tokenbeschaffung (MSAL) | `frontend/src/auth.ts` | fertig, wartet auf die App-Registrierung |
+| Notfall-Anmeldung mit Passwort | `backend/app/security.py`, `app/routers/auth_routes.py` | fertig, aktiv |
 
 `backend/tests/test_azure_ad.py` signiert Token mit einem lokalen Testschluessel
 und laesst sie durch den echten Validierungspfad laufen: gueltige Token, abgelaufene
@@ -89,12 +90,10 @@ Damit bleiben `owner_user_id` und Audit-Log-Eintraege stabil.
 
 ## Schritt 4: Frontend umschalten
 
-```bash
-cd frontend && npm install @azure/msal-browser
-```
-
-Danach in `frontend/src/auth.ts` den Rumpf von `acquireAccessToken()` durch den
-im Kommentar hinterlegten MSAL-Block ersetzen. Build-Variablen:
+MSAL ist eingebaut (`@azure/msal-browser`, dynamisch geladen), es ist also nur
+noch eine Frage der Konfiguration. Der Anmeldebildschirm zeigt dann
+*Mit Microsoft anmelden*; Token werden still erneuert und nur bei abgelaufener
+Sitzung mit einem Popup. Build-Variablen:
 
 ```env
 VITE_AUTH_MODE=azure_ad
@@ -118,6 +117,21 @@ Authorization: Bearer <token>
 Erwartet: `source: "azure-ad"`, der gemappte `role_name` und die Berechtigungsliste.
 `/api/auth/dev-users` liefert unter `azure_ad` bewusst 404.
 
+## Der Weg zurueck, wenn Entra ID nicht funktioniert
+
+Genau dafuer gibt es die Passwort-Anmeldung. Sie laeuft unabhaengig von
+`AUTH_MODE` und ist der Grund, warum eine kaputte App-Registrierung kein
+Totalausfall ist:
+
+```http
+POST /api/auth/login
+{ "email": "admin@ops.local", "password": "<Startpasswort>" }
+```
+
+Das Startpasswort steht in `ADMIN_INITIAL_PASSWORD` und muss bei der ersten
+Anmeldung geaendert werden - bis dahin beantwortet die API nichts anderes.
+Einzelheiten in [`benutzerverwaltung.md`](benutzerverwaltung.md).
+
 ## Rollenmodell
 
 | Rolle | Berechtigungen |
@@ -138,7 +152,12 @@ Anmeldung gesetzt. Siehe [`niederlassungen.md`](niederlassungen.md).
 
 ## Offene Punkte vor dem Produktivgang
 
-- MSAL im Frontend einbauen (Schritt 4).
+- App-Registrierungen anlegen und die IDs setzen (Schritt 1 bis 4). Der Code
+  wartet nur noch darauf.
+- `AUTH_SESSION_SECRET` setzen - sonst verweigert das Backend in Produktion den
+  Start, solange die Passwort-Anmeldung aktiv ist.
+- Startpasswort des Notfallzugangs aendern (passiert bei der ersten Anmeldung
+  von selbst) und `ADMIN_INITIAL_PASSWORD` aus der `.env` entfernen.
 - TLS vor das Backend setzen; Bearer-Token duerfen nicht ueber HTTP laufen.
 - `CORS_ALLOW_ORIGINS` auf die echte Frontend-Domain setzen.
 - Entscheiden, ob `AZURE_AUTO_PROVISION_USERS=false` gelten soll, damit nur

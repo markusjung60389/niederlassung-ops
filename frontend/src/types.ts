@@ -355,11 +355,49 @@ export type ScopeChangePreview = {
 };
 export type User = { id: string; display_name: string };
 
+/** An account as the user administration sees it. */
+export type Account = {
+  id: string;
+  display_name: string;
+  email: string;
+  is_active: boolean;
+  role_id?: string | null;
+  role_name?: string | null;
+  all_branches: boolean;
+  branch_ids: string[];
+  /** How this account signs in: Microsoft, password, or not yet at all. */
+  has_password: boolean;
+  external_id?: string | null;
+  must_change_password: boolean;
+  last_login_at?: string | null;
+  locked_until?: string | null;
+  created_at: string;
+};
+
+export type RoleInfo = {
+  id: string;
+  name: string;
+  description?: string | null;
+  permissions: string[];
+  /** One of the presets: kept in sync by the backend, not editable. */
+  system: boolean;
+  user_count: number;
+};
+
+export type PermissionInfo = {
+  key: string;
+  area: string;
+  label: string;
+  description: string;
+};
+
 export type Bootstrap = {
   branches: Branch[];
   users: User[];
   auth_mode: string;
   permissions: string[];
+  /** False once the emergency password login has been switched off. */
+  password_login_enabled?: boolean;
 };
 
 export type Principal = {
@@ -369,6 +407,8 @@ export type Principal = {
   role_name?: string | null;
   permissions: string[];
   source: string;
+  /** True while the start password is still in place. */
+  must_change_password?: boolean;
 };
 
 export type DevUser = { id: string; display_name: string; role_name?: string | null };
@@ -390,36 +430,8 @@ export type Evidence = {
   uploaded_at: string;
 };
 
-export type Account = {
-  id: string;
-  name: string;
-  branch_id: string;
-  account_type: string;
-  owner_user_id?: string | null;
-  industry?: string | null;
-  notes?: string | null;
-};
-
-export type Opportunity = {
-  id: string;
-  account_id: string;
-  title: string;
-  offer_status: string;
-  probability: number;
-  expected_volume: number;
-  next_step?: string | null;
-  follow_up_date?: string | null;
-  strategic_relevance: string;
-};
-
-export type ServiceContract = {
-  id: string;
-  account_id: string;
-  title: string;
-  sla_response_hours?: number | null;
-  next_maintenance_at?: string | null;
-  upsell_hint?: string | null;
-};
+/* Vertrieb ist aus der Oberflaeche entfernt. Tabellen und Endpunkte bestehen
+   weiter (siehe CHANGELOG), Typen dafuer braucht das Frontend nicht mehr. */
 
 export type AgentRun = {
   id: string;

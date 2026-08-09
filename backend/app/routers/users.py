@@ -412,7 +412,7 @@ def update_role(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
-                "Die vier Standardrollen werden bei jedem Start aus dem Programm abgeglichen "
+                "Die Standardrollen werden bei jedem Start aus dem Programm abgeglichen "
                 "und lassen sich nicht aendern. Fuer eine Abweichung eine eigene Rolle anlegen."
             ),
         )

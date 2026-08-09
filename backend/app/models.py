@@ -38,7 +38,7 @@ class Branch(Base, TimestampMixin):
 class Role(Base):
     """A named set of permissions.
 
-    The four presets are `system` roles: they are kept in sync with
+    The presets are `system` roles: they are kept in sync with
     `permissions.ROLE_PRESETS` on every start, so a new permission reaches
     existing installations. Roles created in the user administration are not,
     and can be edited freely.

@@ -1,8 +1,19 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { Building2, RefreshCw, ShieldCheck } from "lucide-react";
-import { apiGet, errorMessage } from "./api";
-import { AUTH_MODE, getDevUserId, setDevUserId } from "./auth";
+import { Building2, KeyRound, LogOut, RefreshCw, ShieldCheck } from "lucide-react";
+import { ApiError, apiGet, apiPost, errorMessage } from "./api";
+import {
+  AUTH_MODE,
+  clearSignedOut,
+  forgetIdentity,
+  getDevUserId,
+  getSession,
+  hasAzureSession,
+  isSignedOut,
+  setDevUserId,
+  setSession,
+  signOutAzure,
+} from "./auth";
 import { useHashRoute } from "./router";
 import {
   can,
@@ -24,6 +35,7 @@ import {
   type RequirementOverride,
   type Vehicle,
 } from "./types";
+import { PasswordDialog, SignInScreen } from "./components/Login";
 import { AssessmentView } from "./views/AssessmentView";
 import { CatalogView } from "./views/CatalogView";
 import { CockpitView } from "./views/CockpitView";
@@ -32,6 +44,7 @@ import { EmployeeView } from "./views/EmployeeView";
 import { MatrixView } from "./views/MatrixView";
 import { PortfolioView } from "./views/PortfolioView";
 import { RulesView } from "./views/RulesView";
+import { UsersView } from "./views/UsersView";
 import { VehicleView } from "./views/VehicleView";
 import { useToast } from "./components/ui";
 import "@fontsource/archivo/400.css";
@@ -69,12 +82,29 @@ function useIdentity() {
       if (AUTH_MODE === "dev") {
         const users = await apiGet<DevUser[]>("/api/auth/dev-users");
         setDevUsers(users);
-        if (!getDevUserId() && users.length) setDevUserId(users[0].id);
+        if (!getSession() && !getDevUserId() && users.length && !isSignedOut()) {
+          setDevUserId(users[0].id);
+        }
+      }
+      // Signed out on purpose: show the sign-in screen rather than picking an
+      // identity again behind the user's back.
+      if (isSignedOut() && !getSession()) {
+        setPrincipal(null);
+        return;
+      }
+      // Nothing to identify with: show the sign-in screen instead of asking
+      // the API a question it can only answer with 401.
+      if (AUTH_MODE === "azure_ad" && !getSession() && !hasAzureSession()) {
+        setPrincipal(null);
+        return;
       }
       setPrincipal(await apiGet<Principal>("/api/auth/me"));
     } catch (caught) {
       setPrincipal(null);
-      setError(errorMessage(caught));
+      // An expired or retired session is not an error worth showing: it means
+      // "please sign in again", and the screen behind this says so.
+      if (caught instanceof ApiError && caught.status === 401) setSession(null);
+      else setError(errorMessage(caught));
     } finally {
       setLoading(false);
     }
@@ -86,39 +116,28 @@ function useIdentity() {
 
   const selectUser = React.useCallback(
     (userId: string) => {
+      // Picking a dev identity replaces a password session, otherwise the
+      // switch in the topbar would silently do nothing.
+      setSession(null);
       setDevUserId(userId);
       resolve();
     },
     [resolve]
   );
 
-  return { principal, devUsers, loading, error, selectUser, retry: resolve };
-}
+  const signOut = React.useCallback(async () => {
+    try {
+      if (getSession()) await apiPost("/api/auth/logout", {});
+      await signOutAzure();
+    } catch {
+      /* signing out locally is what matters; the token expires either way */
+    }
+    forgetIdentity();
+    setPrincipal(null);
+    window.location.reload();
+  }, []);
 
-function SignInScreen({ error, onRetry }: { error: string | null; onRetry: () => void }) {
-  return (
-    <div className="ops-signin">
-      <section className="pds-card">
-        <div className="ops-row">
-          <ShieldCheck size={18} />
-          <h1 className="pds-page__title" style={{ fontSize: 20 }}>
-            Anmeldung erforderlich
-          </h1>
-        </div>
-        <p className="pds-meta">
-          {AUTH_MODE === "azure_ad"
-            ? "Die Anmeldung ueber Microsoft Entra ID ist noch nicht aktiviert. Siehe docs/azure-ad-setup.md."
-            : "Es konnte keine Identitaet ermittelt werden. Laeuft das Backend und ist ein Benutzer vorhanden?"}
-        </p>
-        {error && <div className="pds-banner pds-banner--danger">{error}</div>}
-        <div>
-          <button type="button" className="pds-btn pds-btn--primary pds-btn--sm" onClick={onRetry}>
-            Erneut versuchen
-          </button>
-        </div>
-      </section>
-    </div>
-  );
+  return { principal, devUsers, loading, error, selectUser, signOut, retry: resolve };
 }
 
 // --------------------------------------------------------------------------
@@ -362,6 +381,13 @@ const NAV: NavEntry[] = [
     lead: "Der Stand der Niederlassung zum Stichtag.",
   },
   {
+    key: "benutzer",
+    label: "Benutzer",
+    permission: "user:read",
+    title: "Benutzer und Rollen",
+    lead: "Wer sich anmelden darf, was er darf und in welcher Niederlassung.",
+  },
+  {
     key: "stammdaten",
     label: "Stammdaten",
     permission: "personnel:read",
@@ -380,13 +406,33 @@ function App() {
       </div>
     );
   }
-  if (!identity.principal) return <SignInScreen error={identity.error} onRetry={identity.retry} />;
+  if (!identity.principal) {
+    return (
+      <SignInScreen
+        error={identity.error}
+        devUsers={identity.devUsers}
+        onSignedIn={identity.retry}
+        onSelectUser={identity.selectUser}
+        onRetry={identity.retry}
+      />
+    );
+  }
+  // The start password is still in place: the API answers nothing else, so
+  // neither does the application.
+  if (identity.principal.must_change_password) {
+    return (
+      <div className="ops-signin">
+        <PasswordDialog forced onClose={() => undefined} onChanged={identity.retry} />
+      </div>
+    );
+  }
 
   return (
     <Workspace
       principal={identity.principal}
       devUsers={identity.devUsers}
       onSelectUser={identity.selectUser}
+      onSignOut={identity.signOut}
     />
   );
 }
@@ -395,11 +441,14 @@ function Workspace({
   principal,
   devUsers,
   onSelectUser,
+  onSignOut,
 }: {
   principal: Principal;
   devUsers: DevUser[];
   onSelectUser: (userId: string) => void;
+  onSignOut: () => void;
 }) {
+  const [changingPassword, setChangingPassword] = React.useState(false);
   const bootstrap = useBootstrap();
   const branches = bootstrap.data.branches;
   const multiBranch = branches.length > 1;
@@ -513,6 +562,26 @@ function Workspace({
           >
             <RefreshCw size={15} />
           </button>
+          {principal.source === "password" && (
+            <button
+              type="button"
+              className="pds-icon-btn"
+              title="Passwort aendern"
+              aria-label="Passwort aendern"
+              onClick={() => setChangingPassword(true)}
+            >
+              <KeyRound size={15} />
+            </button>
+          )}
+          <button
+            type="button"
+            className="pds-icon-btn"
+            title="Abmelden"
+            aria-label="Abmelden"
+            onClick={onSignOut}
+          >
+            <LogOut size={15} />
+          </button>
         </div>
       </header>
 
@@ -612,6 +681,14 @@ function Workspace({
                 onToast={toast.show}
               />
             )}
+            {route.view === "benutzer" && (
+              <UsersView
+                branches={branches}
+                permissions={principal.permissions}
+                currentUserId={principal.user_id}
+                onToast={toast.show}
+              />
+            )}
             {route.view === "stammdaten" && (
               <CatalogView
                 jobRoles={data.jobRoles}
@@ -626,6 +703,16 @@ function Workspace({
           </>
         )}
       </main>
+      {changingPassword && (
+        <PasswordDialog
+          forced={false}
+          onClose={() => setChangingPassword(false)}
+          onChanged={() => {
+            setChangingPassword(false);
+            toast.show("Passwort geaendert");
+          }}
+        />
+      )}
       {toast.node}
     </div>
   );

@@ -4,6 +4,7 @@ import { MANAGER } from "./api";
 /** Interaction helpers shared by the specs. */
 
 const DEV_USER_STORAGE_KEY = "remscheid-ops.dev-user-id";
+const SESSION_STORAGE_KEY = "remscheid-ops.session";
 
 /**
  * Opens a view as a given identity.
@@ -15,8 +16,13 @@ const DEV_USER_STORAGE_KEY = "remscheid-ops.dev-user-id";
  */
 export async function gotoAs(page: Page, route: string, userId: string = MANAGER): Promise<void> {
   await page.addInitScript(
-    ([key, value]) => window.localStorage.setItem(key, value),
-    [DEV_USER_STORAGE_KEY, userId] as const
+    ([key, value, sessionKey]) => {
+      window.localStorage.setItem(key, value);
+      // A password session outranks the dev identity in the application, so a
+      // leftover one from the login spec would silently change who is acting.
+      window.localStorage.removeItem(sessionKey);
+    },
+    [DEV_USER_STORAGE_KEY, userId, SESSION_STORAGE_KEY] as const
   );
   // A page is already open: going to another route would only change the hash,
   // the document would never be re-created and the init script above would

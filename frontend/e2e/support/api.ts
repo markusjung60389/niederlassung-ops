@@ -105,7 +105,10 @@ async function call<T>(
   userId: string = MANAGER
 ): Promise<T> {
   const response = await request[method](`${BACKEND_URL}${path}`, {
-    headers: { "X-User-Id": userId, "Content-Type": "application/json" },
+    // The login endpoint is the one call that must arrive without an identity.
+    headers: path.startsWith("/api/auth/login")
+      ? { "Content-Type": "application/json" }
+      : { "X-User-Id": userId, "Content-Type": "application/json" },
     data: body === undefined ? undefined : body,
   });
   if (!response.ok()) {

@@ -7,6 +7,22 @@ Versionierung nach [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Hinzugefuegt
 
+- **Benutzerverwaltung und Berechtigungssystem.** Konten, Rollen und
+  Niederlassungszuordnung sind jetzt in der Oberflaeche pflegbar; beschrieben in
+  [`docs/benutzerverwaltung.md`](docs/benutzerverwaltung.md).
+  - **Anmeldung ueber Microsoft Entra ID** ist im Frontend fertig verdrahtet
+    (`@azure/msal-browser`, dynamisch nachgeladen). Es fehlen nur noch die
+    App-Registrierungen.
+  - **Passwort-Anmeldung als Notfallweg**, unabhaengig vom `AUTH_MODE`. Beim
+    ersten Start entsteht ein Administratorkonto (`ADMIN_EMAIL`, Startpasswort
+    aus `ADMIN_INITIAL_PASSWORD`). **Das Startpasswort muss bei der ersten
+    Anmeldung geaendert werden** - bis dahin beantwortet die API nichts anderes.
+  - scrypt-Hashing aus der Standardbibliothek, Sperre nach fuenf Fehlversuchen,
+    Sitzungen ueber eine `token_version` widerrufbar, jede Anmeldung im
+    Protokoll.
+  - **Eigene Rollen** mit frei zusammengestellten Berechtigungen; die fuenf
+    Standardrollen bleiben programmseitig gepflegt und damit unveraenderbar.
+  - Neue Berechtigungen `user:read` und `user:write`, neue Rolle *Administrator*.
 - **Mehrere Niederlassungen.** Dieselbe Anwendung verwaltet jetzt mehrere
   Standorte, aus zwei Perspektiven: der Niederlassungsleitung und der
   Bereichsleitung darueber. Beschrieben in
@@ -47,6 +63,9 @@ Versionierung nach [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Behoben
 
+- **`/api/actions` und `/api/bootstrap` waren nicht nach Zustaendigkeit
+  gefiltert** (siehe unten) - beides faellt jetzt unter dieselbe Pruefung wie die
+  uebrigen Listen.
 - **Ein Wechsel der Niederlassung konnte die alte Liste zeigen.** Die noch
   laufende, ungefilterte Antwort ueberholte die gefilterte; die Tabelle zeigte
   dann Standorte, die der Umschalter nicht ausgewaehlt hatte.

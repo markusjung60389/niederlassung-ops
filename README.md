@@ -8,6 +8,10 @@ fuer mehrere Standorte nebeneinander.
 
 ## Umfang
 
+- **Benutzerverwaltung und Berechtigungen**: Konten, Rollen und
+  Niederlassungszuordnung in der Oberflaeche; Anmeldung ueber Microsoft Entra ID
+  mit einer Passwort-Anmeldung als Notfallweg. Details in
+  [`docs/benutzerverwaltung.md`](docs/benutzerverwaltung.md)
 - **Mehrere Niederlassungen**: Umschalter in der Kopfzeile, Portfolio ueber
   alle Standorte, Regeln wahlweise gruppenweit oder oertlich - in beide
   Richtungen umstellbar. Details in
@@ -46,8 +50,9 @@ Nicht enthalten: Dashboard-Import, Shared DB, Synchronisation mit dem vorhandene
 
 Weitere Ansichten in [`docs/screenshots/`](docs/screenshots/): Mitarbeiter,
 Qualifikationsmatrix, Fahrzeuge samt Verlegen-Dialog, Compliance, Vorgaben mit
-Geltungswechsel und Stammdaten. Die Standorte ausser Remscheid sind
-Platzhalter fuer die Abbildungen.
+Geltungswechsel, Benutzerverwaltung mit Rolleneditor, Anmeldebildschirm und
+Stammdaten. Die Standorte ausser Remscheid sind Platzhalter fuer die
+Abbildungen.
 
 Das Erscheinungsbild folgt dem gemeinsamen PDS-Fokus-Styleguide
 ([`docs/design/`](docs/design/)), damit die Anwendung mit den uebrigen
@@ -57,9 +62,9 @@ Unternehmens-Apps zusammenpasst. Tokens und Bausteine liegen unveraendert in
 ## Tests
 
 ```bash
-cd backend && python -m pytest -q          # 186 Faelle
+cd backend && python -m pytest -q          # 214 Faelle
 cd frontend && npm run typecheck           # Oberflaeche und API-Typen
-cd frontend && npm run e2e                 # 38 E2E-Faelle im Browser
+cd frontend && npm run e2e                 # 77 E2E-Faelle im Browser
 ```
 
 Die End-to-end-Tests fahren das gebaute Frontend gegen ein echtes Backend mit
@@ -67,25 +72,41 @@ frischer Datenbank. Aufbau und Erweiterung: [`docs/tests.md`](docs/tests.md).
 
 ## Authentifizierung
 
-Zwei Modi, gesteuert ueber `AUTH_MODE`:
+Drei Wege hinein, zwei davon ueber `AUTH_MODE` gesteuert:
 
-| Modus | Verhalten |
+| Weg | Verhalten |
 | --- | --- |
-| `dev` (Standard) | Der Aufrufer weist sich mit `X-User-Id` aus. Nur fuer lokale Arbeit und Tests. Das Backend verweigert den Start, wenn gleichzeitig `APP_ENV=production` gesetzt ist. |
-| `azure_ad` | Microsoft Entra ID Bearer-Token werden bei jedem Request geprueft (Signatur, Issuer, Audience, Ablauf) und auf lokale Rollen gemappt. |
+| `azure_ad` | Microsoft Entra ID. MSAL im Frontend, Token-Pruefung im Backend (Signatur, Issuer, Audience, Ablauf), Abbildung auf lokale Rollen. Der Regelweg. |
+| Passwort | Unabhaengig vom Modus verfuegbar: `POST /api/auth/login` gibt ein Sitzungstoken aus. Der Notfallweg fuer den Tag, an dem die App-Registrierung kaputt oder der Tenant nicht erreichbar ist. Abschaltbar mit `AUTH_PASSWORD_LOGIN_ENABLED=false`. |
+| `dev` (Standard lokal) | Der Aufrufer weist sich mit `X-User-Id` aus. Nur fuer lokale Arbeit und Tests; das Backend verweigert den Start, wenn gleichzeitig `APP_ENV=production` gesetzt ist. |
 
-**Der Azure-AD-Pfad ist implementiert und getestet, aber noch nicht scharf geschaltet.**
-Die Aktivierung ist Schritt fuer Schritt in [`docs/azure-ad-setup.md`](docs/azure-ad-setup.md)
-beschrieben; im Frontend fehlt dafuer noch die MSAL-Abhaengigkeit.
+**Entra ID ist implementiert und getestet und wartet nur noch auf die
+App-Registrierungen** - siehe [`docs/azure-ad-setup.md`](docs/azure-ad-setup.md).
+
+### Notfallzugang
+
+Beim ersten Start entsteht genau ein Konto mit Passwort, wenn keines existiert:
+
+| Feld | Wert |
+| --- | --- |
+| Anmeldung | `ADMIN_EMAIL`, Vorgabe `admin@ops.local` |
+| Startpasswort | `ADMIN_INITIAL_PASSWORD`, Vorgabe `BSchmitt-Ops-2026!` |
+
+Das Startpasswort **muss bei der ersten Anmeldung geaendert werden**; bis dahin
+beantwortet die API nichts anderes. Fuenf Fehlversuche sperren das Konto fuer 15
+Minuten, jede Anmeldung steht im Protokoll. In Produktion verweigert das Backend
+den Start ohne `AUTH_SESSION_SECRET`, solange dieser Weg aktiv ist.
 
 Rollen und Berechtigungen stehen in `backend/app/permissions.py`:
 
 | Rolle | Berechtigungen |
 | --- | --- |
+| Administrator | `*` - Verwaltung des Werkzeugs und Notfallzugang |
 | Bereichsleiter | `*` |
 | Niederlassungsleiter | alle Bereichsrechte, aber **kein** `rule:write` und `branch:write` |
 | HSE / Compliance | `compliance:*`, `incident:*`, `personnel:read`, `fleet:read`, `assessment:read`, `sales:read`, `rule:read`, `branch:read`, `agent:run`, `audit:read` |
-| Betrachter | alle `:read` |
+| Betrachter | alle `:read` ausser `user:read` |
+| eigene Rollen | frei zusammenstellbar in der Benutzerverwaltung |
 
 Die Rolle entscheidet, **was** jemand darf; das Konto entscheidet ueber
 `user_branches` bzw. `users.all_branches`, **wo**. Der Niederlassungsleiter
@@ -126,7 +147,8 @@ aktualisiert. **Bestandsdaten bleiben dabei immer erhalten** - auch eine
 Datenbank aus der Zeit vor Einfuehrung der Migrationen wird uebernommen und
 hochmigriert, nicht neu aufgesetzt.
 
-Geseedet werden nur Remscheid sowie die vier Rollen und je ein Konto dazu;
+Geseedet werden nur Remscheid, die fuenf Rollen, je ein Konto dazu und der
+Notfall-Administrator;
 fachliche Daten werden in der App erfasst. Weitere Niederlassungen legt die
 Bereichsleitung selbst an - ihre Namen gehoeren der Organisation und nicht
 einer Seed-Datei.
@@ -221,8 +243,9 @@ Beide Jobs sind idempotent und schreiben ins Audit-Log.
 
 ## Bekannte Einschraenkungen
 
-- Azure AD ist vorbereitet und getestet, aber nicht aktiv: im Frontend fehlt
-  noch die MSAL-Abhaengigkeit. Siehe [`docs/azure-ad-setup.md`](docs/azure-ad-setup.md).
+- Azure AD ist vorbereitet und getestet, aber noch nicht scharf geschaltet: es
+  fehlen die App-Registrierungen und die IDs dazu. Siehe
+  [`docs/azure-ad-setup.md`](docs/azure-ad-setup.md).
 - Der Vertrieb ist aus der Oberflaeche entfernt. Tabellen und Endpunkte
   (`/api/accounts`, `/api/opportunities`, `/api/service-contracts`) bestehen
   unveraendert weiter, es geht also nichts verloren; im Cockpit erscheinen die
@@ -232,6 +255,7 @@ Beide Jobs sind idempotent und schreiben ins Audit-Log.
 
 ## Weitere Dokumentation
 
+- [`docs/benutzerverwaltung.md`](docs/benutzerverwaltung.md) - Konten, Rollen, Anmeldung
 - [`docs/niederlassungen.md`](docs/niederlassungen.md) - mehrere Standorte, Regeln, Ausnahmen
 - [`docs/architecture.md`](docs/architecture.md) - Aufbau und Datenfluss
 - [`docs/migrations.md`](docs/migrations.md) - Schemaaenderungen und Datenerhalt
