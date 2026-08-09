@@ -3,6 +3,30 @@
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 Versionierung nach [Semantic Versioning](https://semver.org/lang/de/).
 
+## [Unveroeffentlicht]
+
+### Hinzugefuegt
+
+- **End-to-end-Tests** mit Playwright: 30 Faelle in zwei Viewports gegen das
+  gebaute Frontend und ein echtes Backend, inklusive der Laufzeitkonfiguration
+  ueber `/config.js`. Ablauf und Erweiterung in [`docs/tests.md`](docs/tests.md).
+  Als eigener CI-Job.
+
+### Behoben
+
+- **Qualifikation aus einer Anforderung erfassen war wirkungslos.** Das
+  vorbelegte Auswahlfeld ist `disabled` und wurde deshalb nicht mitgesendet;
+  der Dialog verlangte stattdessen eine Auswahl, die er selbst gesperrt hatte.
+  Damit war der Hauptweg der neuen Qualifikationsverwaltung unbenutzbar.
+- **Jedes Speichern schloss den offenen Dialog.** Der Ladehinweis ersetzte den
+  gesamten Inhaltsbereich auch beim Nachladen nach einer Aenderung und hat den
+  Dialog dabei ausgehaengt. Er erscheint jetzt nur noch beim ersten Laden.
+- Die dokumentierten Rechte der Rolle *HSE / Compliance* stimmten nicht mit
+  `ROLE_PRESETS` ueberein - `sales:read` fehlte in README und
+  Azure-AD-Anleitung.
+- Der Bestaetigungsdialog fuer Qualifikationsarten beschriftete die Aktion mit
+  "Loeschen" statt "Entfernen".
+
 ## [1.1.0] - 2026-08-09
 
 Qualifikationsmodell und neue Oberflaeche im PDS-Fokus-Design.

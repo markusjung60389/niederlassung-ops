@@ -733,16 +733,18 @@ function QualificationDialog({
     const form = event.currentTarget;
     const data = new FormData(form);
     run(form, async () => {
-      const selected = emptyToNull(data.get("qualification_type_id"));
+      // The selected type comes from state, not from the form: when the dialog
+      // is opened from a requirement the select is disabled so it cannot be
+      // changed, and a disabled control is never submitted.
       const title = emptyToNull(data.get("title"));
-      if (!selected && !title) throw new Error("Bitte eine Qualifikation waehlen oder benennen.");
+      if (!typeId && !title) throw new Error("Bitte eine Qualifikation waehlen oder benennen.");
       await apiPost("/api/employee-qualifications", {
         employee_id: employee.id,
-        qualification_type_id: selected,
+        qualification_type_id: typeId || null,
         // Title and kind come from the catalogue when one is selected; a free
         // entry has to carry both itself.
         title,
-        qualification_type: selected ? null : "sonstige",
+        qualification_type: typeId ? null : "sonstige",
         issued_on: emptyToNull(data.get("issued_on")),
         valid_until: emptyToNull(data.get("valid_until")),
       });

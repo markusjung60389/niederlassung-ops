@@ -40,6 +40,17 @@ Das Erscheinungsbild folgt dem gemeinsamen PDS-Fokus-Styleguide
 Unternehmens-Apps zusammenpasst. Tokens und Bausteine liegen unveraendert in
 `frontend/src/styles/`; eigene Farben oder Radien kommen nicht vor.
 
+## Tests
+
+```bash
+cd backend && python -m pytest -q          # 158 Faelle
+cd frontend && npm run typecheck           # Oberflaeche und API-Typen
+cd frontend && npm run e2e                 # 30 E2E-Faelle im Browser
+```
+
+Die End-to-end-Tests fahren das gebaute Frontend gegen ein echtes Backend mit
+frischer Datenbank. Aufbau und Erweiterung: [`docs/tests.md`](docs/tests.md).
+
 ## Authentifizierung
 
 Zwei Modi, gesteuert ueber `AUTH_MODE`:
@@ -58,7 +69,7 @@ Rollen und Berechtigungen stehen in `backend/app/permissions.py`:
 | Rolle | Berechtigungen |
 | --- | --- |
 | Niederlassungsleiter | `*` |
-| HSE / Compliance | `compliance:*`, `incident:*`, `personnel:read`, `fleet:read`, `assessment:read`, `agent:run`, `audit:read` |
+| HSE / Compliance | `compliance:*`, `incident:*`, `personnel:read`, `fleet:read`, `assessment:read`, `sales:read`, `agent:run`, `audit:read` |
 | Betrachter | alle `:read` |
 
 Alle `/api/*`-Endpunkte erfordern eine Identitaet, Lesezugriffe eingeschlossen.

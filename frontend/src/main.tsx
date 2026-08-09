@@ -128,6 +128,11 @@ function useOpsData(permissions: string[]) {
   const [matrix, setMatrix] = React.useState<QualificationMatrix | null>(null);
   const [bootstrap, setBootstrap] = React.useState<Bootstrap>(EMPTY_BOOTSTRAP);
   const [loading, setLoading] = React.useState(true);
+  // Set after the first successful load. Every save triggers a reload, and
+  // replacing the whole content area with a loading notice would unmount the
+  // dialog that caused it - the record would be saved and the dialog would
+  // vanish mid-edit.
+  const [ready, setReady] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   const key = permissions.join(",");
@@ -185,6 +190,7 @@ function useOpsData(permissions: string[]) {
       setQualificationTypes(typeData);
       setMatrix(matrixData);
       setError(null);
+      setReady(true);
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
@@ -211,6 +217,7 @@ function useOpsData(permissions: string[]) {
     matrix,
     bootstrap,
     loading,
+    ready,
     error,
     reload: load,
   };
@@ -391,12 +398,12 @@ function Workspace({
           </div>
         </div>
 
-        {data.loading && <div className="pds-banner">Daten werden geladen...</div>}
+        {data.loading && !data.ready && <div className="pds-banner">Daten werden geladen...</div>}
         {data.error && (
           <div className="pds-banner pds-banner--danger">Backend nicht erreichbar: {data.error}</div>
         )}
 
-        {!data.loading && !data.error && (
+        {data.ready && !data.error && (
           <>
             {route === "cockpit" && data.cockpit && (
               <CockpitView

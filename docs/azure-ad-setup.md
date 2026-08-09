@@ -122,7 +122,7 @@ Erwartet: `source: "azure-ad"`, der gemappte `role_name` und die Berechtigungsli
 | Rolle | Berechtigungen |
 | --- | --- |
 | Niederlassungsleiter | `*` |
-| HSE / Compliance | `compliance:*`, `incident:*`, `personnel:read`, `fleet:read`, `assessment:read`, `agent:run`, `audit:read` |
+| HSE / Compliance | `compliance:*`, `incident:*`, `personnel:read`, `fleet:read`, `assessment:read`, `sales:read`, `agent:run`, `audit:read` |
 | Betrachter | alle `:read` |
 
 Definiert in `backend/app/permissions.py`. Die Presets sind fuehrend: bei einer

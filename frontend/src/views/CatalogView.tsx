@@ -181,6 +181,7 @@ export function CatalogView({
       <ConfirmDialog
         open={confirmType !== null}
         title="Qualifikationsart entfernen"
+        confirmLabel="Entfernen"
         busy={remove.busy}
         body={
           <p>
