@@ -54,7 +54,17 @@ def dev_users(db: Session = Depends(get_db)) -> list[schemas.DevUserRead]:
 
 @router.get("/api/bootstrap")
 def bootstrap(principal: CurrentPrincipal, db: Session = Depends(get_db)) -> dict:
-    branches = db.scalars(select(models.Branch).order_by(models.Branch.name.asc())).all()
+    # Only the branches the caller belongs to: this drives the branch switcher,
+    # and the names of the others are none of their business either.
+    branches = [
+        branch
+        for branch in db.scalars(
+            select(models.Branch)
+            .where(models.Branch.active.is_(True))
+            .order_by(models.Branch.name.asc())
+        ).all()
+        if principal.may_see(branch.id)
+    ]
     users = db.scalars(
         select(models.User).where(models.User.is_active.is_(True)).order_by(models.User.display_name.asc())
     ).all()

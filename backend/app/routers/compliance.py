@@ -252,16 +252,22 @@ def add_action(
     return action_read(action)
 
 
-@router.get(
-    "/api/actions", response_model=list[schemas.ComplianceActionRead], dependencies=[read_dependency]
-)
+@router.get("/api/actions", response_model=list[schemas.ComplianceActionRead])
 def list_actions(
+    principal: ReadDep,
+    branch_id: str | None = None,
     status_filter: Annotated[str | None, Query(alias="status")] = None,
     owner_user_id: str | None = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 200,
     db: Session = Depends(get_db),
 ) -> list[schemas.ComplianceActionRead]:
-    query = select(models.ComplianceAction)
+    # An action belongs to its record, and the record to a branch: without the
+    # join every branch reads every other branch's open measures.
+    query = select(models.ComplianceAction).join(
+        models.ComplianceRecord,
+        models.ComplianceAction.compliance_record_id == models.ComplianceRecord.id,
+    )
+    query = branch_filter(query, models.ComplianceRecord.branch_id, principal, branch_id)
     if status_filter:
         query = query.where(models.ComplianceAction.status == status_filter)
     if owner_user_id:

@@ -2,7 +2,7 @@ from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from .. import models, permissions, schemas, serializers
@@ -110,18 +110,6 @@ def cockpit(
     employee_due_count = len([item for item in reminders if item.source_type.startswith("employee")])
     vehicle_due_count = len([item for item in reminders if item.source_type == "vehicle"])
 
-    # Only opportunities that are still live count towards the pipeline.
-    pipeline_value = db.scalar(
-        select(func.coalesce(func.sum(models.Opportunity.expected_volume), 0)).where(
-            models.Opportunity.offer_status.notin_(["won", "lost"])
-        )
-    ) or 0
-    service_due_count = db.scalar(
-        select(func.count(models.ServiceContract.id)).where(
-            models.ServiceContract.next_maintenance_at <= today_local()
-        )
-    )
-
     overdue_records = [record for record in records if is_overdue(record.status, record.due_date)]
     due_soon = [
         record
@@ -171,12 +159,6 @@ def cockpit(
             schemas.CockpitMetric(
                 label="Fahrzeugfristen", value=vehicle_due_count, state="yellow" if vehicle_due_count else "green"
             ),
-            schemas.CockpitMetric(
-                label="Service faellig",
-                value=int(service_due_count or 0),
-                state="yellow" if service_due_count else "green",
-            ),
-            schemas.CockpitMetric(label="Pipeline (EUR)", value=float(pipeline_value), state="green"),
         ],
         overdue_compliance=[record_read(record) for record in overdue_records],
         due_soon_compliance=[record_read(record) for record in due_soon],
@@ -184,8 +166,6 @@ def cockpit(
         expiring_qualifications=[qualification_read(qualification) for qualification in expiring],
         incidents=incidents,
         reminders=reminders,
-        pipeline_value=float(pipeline_value),
-        service_due_count=int(service_due_count or 0),
         vehicle_due_count=vehicle_due_count,
         employee_due_count=employee_due_count,
         blocked_employees=blocked,

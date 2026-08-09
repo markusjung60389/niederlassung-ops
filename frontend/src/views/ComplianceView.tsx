@@ -42,6 +42,7 @@ export function ComplianceView({
   records,
   actions,
   bootstrap,
+  branchId,
   permissions,
   onReload,
   onToast,
@@ -49,6 +50,8 @@ export function ComplianceView({
   records: RecordItem[];
   actions: Action[];
   bootstrap: Bootstrap;
+  /** The selected branch, or null while every branch is shown at once. */
+  branchId: string | null;
   permissions: string[];
   onReload: () => void;
   onToast: (message: string) => void;
@@ -156,7 +159,18 @@ export function ComplianceView({
             <Cell>
               <Pill tone={toneOf(record.due_state)}>{label.status(record.status)}</Pill>
             </Cell>
-            <TitleCell title={record.title} meta={record.legal_basis} />
+            <TitleCell
+              title={record.title}
+              meta={
+                <>
+                  {record.legal_basis}
+                  {/* Where the obligation comes from decides who may change
+                      it: a group rule is the area manager's. */}
+                  {record.rule_scope === "group" && " · Gruppenvorgabe"}
+                  {record.rule_scope === "branch" && " · eigene Vorgabe"}
+                </>
+              }
+            />
             <Cell>
               <span className="pds-meta">{label.category(record.category)}</span>
             </Cell>
@@ -191,6 +205,7 @@ export function ComplianceView({
       {creating && (
         <CreateRecordDialog
           bootstrap={bootstrap}
+          branchId={branchId}
           onClose={() => setCreating(false)}
           onSaved={() => {
             setCreating(false);
@@ -237,10 +252,12 @@ export function ComplianceView({
 
 function CreateRecordDialog({
   bootstrap,
+  branchId,
   onClose,
   onSaved,
 }: {
   bootstrap: Bootstrap;
+  branchId: string | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -248,7 +265,9 @@ function CreateRecordDialog({
   const [picked, setPicked] = React.useState<ComplianceTemplate | null>(null);
   const [step, setStep] = React.useState<"pick" | "form">("pick");
   const { error, busy, run } = useSubmit(onSaved);
-  const branchId = bootstrap.branches[0]?.id;
+  // A record belongs to exactly one branch, so with none selected the first
+  // one the caller may see is the only sensible default.
+  const targetBranch = branchId ?? bootstrap.branches[0]?.id;
   const ownerId = bootstrap.users[0]?.id;
 
   React.useEffect(() => {
@@ -262,7 +281,7 @@ function CreateRecordDialog({
     const form = event.currentTarget;
     const data = new FormData(form);
     run(form, async () => {
-      if (!branchId || !ownerId) throw new Error("Niederlassung oder Verantwortlicher fehlt.");
+      if (!targetBranch || !ownerId) throw new Error("Niederlassung oder Verantwortlicher fehlt.");
       await apiPost("/api/compliance-records", {
         title: data.get("title"),
         category: data.get("category"),
@@ -274,7 +293,7 @@ function CreateRecordDialog({
         due_date: data.get("due_date"),
         review_date: data.get("review_date") || data.get("due_date"),
         risk_if_missing: emptyToNull(data.get("risk_if_missing")),
-        branch_id: branchId,
+        branch_id: targetBranch,
         owner_user_id: ownerId,
         tags: [],
         scope_type: "branch",

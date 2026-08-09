@@ -4,7 +4,7 @@ import { apiDelete, apiPatch, apiPost } from "../api";
 import { label, requirementTone } from "../labels";
 import {
   can,
-  type Bootstrap,
+  type Branch,
   type Employee,
   type JobRole,
   type Qualification,
@@ -41,7 +41,8 @@ export function EmployeeView({
   employees,
   jobRoles,
   qualificationTypes,
-  bootstrap,
+  branches,
+  branchId,
   permissions,
   onReload,
   onToast,
@@ -49,7 +50,9 @@ export function EmployeeView({
   employees: Employee[];
   jobRoles: JobRole[];
   qualificationTypes: QualificationType[];
-  bootstrap: Bootstrap;
+  branches: Branch[];
+  /** The selected branch, or null while every branch is shown at once. */
+  branchId: string | null;
   permissions: string[];
   onReload: () => void;
   onToast: (message: string) => void;
@@ -195,7 +198,8 @@ export function EmployeeView({
         <EmployeeDialog
           employee={editing === "new" ? null : editing}
           jobRoles={jobRoles}
-          bootstrap={bootstrap}
+          branches={branches}
+          branchId={branchId}
           onClose={() => setEditing(null)}
           onSaved={(message) => {
             setEditing(null);
@@ -209,6 +213,8 @@ export function EmployeeView({
         <EmployeeDetail
           employee={selected}
           qualificationTypes={qualificationTypes}
+          branches={branches}
+          branchId={branchId}
           mayWrite={mayWrite}
           onClose={() => setDetail(null)}
           onChanged={(message) => {
@@ -250,13 +256,15 @@ export function EmployeeView({
 function EmployeeDialog({
   employee,
   jobRoles,
-  bootstrap,
+  branches,
+  branchId,
   onClose,
   onSaved,
 }: {
   employee: Employee | null;
   jobRoles: JobRole[];
-  bootstrap: Bootstrap;
+  branches: Branch[];
+  branchId: string | null;
   onClose: () => void;
   onSaved: (message: string) => void;
 }) {
@@ -264,7 +272,11 @@ function EmployeeDialog({
   const [dirty, setDirty] = React.useState(false);
   const { error, busy, run } = useSubmit(() => onSaved(employee ? "Aenderungen gespeichert" : "Mitarbeiter angelegt"));
   const profile = employee?.profile ?? null;
-  const branchId = employee?.branch_id ?? bootstrap.branches[0]?.id;
+  // While no branch is selected there is nothing to guess from, so the form
+  // asks - creating somebody in the wrong branch is tedious to undo.
+  const [homeBranch, setHomeBranch] = React.useState(
+    employee?.branch_id ?? branchId ?? branches[0]?.id ?? ""
+  );
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -272,7 +284,7 @@ function EmployeeDialog({
     const data = new FormData(form);
 
     run(form, async () => {
-      if (!branchId) throw new Error("Keine Niederlassung verfuegbar.");
+      if (!homeBranch) throw new Error("Keine Niederlassung verfuegbar.");
       const core = {
         full_name: data.get("full_name"),
         role: String(data.get("role") || "").trim() || "Mitarbeiter",
@@ -290,7 +302,7 @@ function EmployeeDialog({
         ? await apiPatch<Employee>(`/api/employees/${employee.id}`, core)
         : // The profile is only sent once the employee exists, so a failed
           // first call cannot silently discard it.
-          await apiPost<Employee>("/api/employees", { branch_id: branchId, ...core });
+          await apiPost<Employee>("/api/employees", { branch_id: homeBranch, ...core });
 
       const profileFields = {
         contract_type: data.get("contract_type"),
@@ -356,6 +368,21 @@ function EmployeeDialog({
 
         <Fieldset legend="Stammdaten">
           <div className="ops-grid">
+            {!employee && branches.length > 1 && (
+              <Field label="Heimat-Niederlassung">
+                <Select
+                  value={homeBranch}
+                  onChange={(event) => setHomeBranch(event.target.value)}
+                  required
+                >
+                  {branches.map((branch) => (
+                    <option key={branch.id} value={branch.id}>
+                      {branch.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            )}
             <Field label="Name">
               <TextInput name="full_name" required minLength={2} defaultValue={employee?.full_name} />
             </Field>
@@ -454,18 +481,121 @@ function EmployeeDialog({
 }
 
 /* --------------------------------------------------------------------------
+ * Deployments
+ * ----------------------------------------------------------------------- */
+
+/**
+ * Which branches somebody works in.
+ *
+ * Requirements add up across them rather than being replaced: a person
+ * deployed in two branches has to satisfy both sets. Anything else would turn
+ * an exception granted in one branch into a licence to work in the other.
+ */
+function Deployments({
+  employee,
+  branches,
+  mayWrite,
+  onChanged,
+}: {
+  employee: Employee;
+  branches: Branch[];
+  mayWrite: boolean;
+  onChanged: (message: string) => void;
+}) {
+  const [adding, setAdding] = React.useState("");
+  const assign = useAction(() => {
+    setAdding("");
+    onChanged("Einsatzort gespeichert");
+  });
+  const available = branches.filter(
+    (branch) => branch.id !== employee.branch_id && !employee.branch_ids.includes(branch.id)
+  );
+
+  return (
+    <div>
+      <h3 className="pds-label pds-label--micro" style={{ marginBottom: 8 }}>
+        Einsatzorte
+      </h3>
+      <FormStatus error={assign.error} busy={assign.busy} busyLabel="Wird gespeichert..." />
+      <div className="ops-chips">
+        {branches
+          .filter((branch) => employee.branch_ids.includes(branch.id))
+          .map((branch) => {
+            const home = branch.id === employee.branch_id;
+            const readiness = employee.readiness_by_branch[branch.id];
+            return (
+              <span key={branch.id} className="pds-tag" title={label.readiness(readiness)}>
+                {branch.name}
+                {home ? " (Heimat)" : ""}
+                {readiness && readiness !== "ready" ? ` · ${label.readiness(readiness)}` : ""}
+                {mayWrite && !home && (
+                  <button
+                    type="button"
+                    className="pds-btn pds-btn--link"
+                    style={{ marginLeft: 6 }}
+                    aria-label={`Einsatz in ${branch.name} beenden`}
+                    onClick={() =>
+                      assign.run(() =>
+                        apiDelete(`/api/employees/${employee.id}/branches/${branch.id}`)
+                      )
+                    }
+                  >
+                    entfernen
+                  </button>
+                )}
+              </span>
+            );
+          })}
+      </div>
+      {mayWrite && available.length > 0 && (
+        <div className="ops-row" style={{ marginTop: 10 }}>
+          <Select
+            value={adding}
+            aria-label="Weitere Niederlassung"
+            onChange={(event) => setAdding(event.target.value)}
+          >
+            <option value="">weitere Niederlassung...</option>
+            {available.map((branch) => (
+              <option key={branch.id} value={branch.id}>
+                {branch.name}
+              </option>
+            ))}
+          </Select>
+          <button
+            type="button"
+            className="pds-btn pds-btn--outline pds-btn--sm"
+            disabled={!adding || assign.busy}
+            onClick={() =>
+              assign.run(() =>
+                apiPost(`/api/employees/${employee.id}/branches`, { branch_id: adding })
+              )
+            }
+          >
+            <Plus size={15} /> Einsatzort
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* --------------------------------------------------------------------------
  * Detail: requirements and qualifications
  * ----------------------------------------------------------------------- */
 
 function EmployeeDetail({
   employee,
   qualificationTypes,
+  branches,
+  branchId,
   mayWrite,
   onClose,
   onChanged,
 }: {
   employee: Employee;
   qualificationTypes: QualificationType[];
+  branches: Branch[];
+  branchId: string | null;
   mayWrite: boolean;
   onClose: () => void;
   onChanged: (message: string) => void;
@@ -483,6 +613,9 @@ function EmployeeDetail({
           <>
             {employee.job_role_name ?? employee.role}
             {employee.team ? ` · ${employee.team}` : ""} · seit {formatDate(employee.start_date)}
+            {branchId && branches.length > 1
+              ? ` · Beurteilung fuer ${branches.find((item) => item.id === branchId)?.name ?? ""}`
+              : ""}
           </>
         }
         onClose={onClose}
@@ -506,6 +639,15 @@ function EmployeeDetail({
               Pflichtqualifikationen fehlen oder sind abgelaufen &ndash; kein Einsatz in dieser
               Funktion.
             </div>
+          )}
+
+          {branches.length > 1 && (
+            <Deployments
+              employee={employee}
+              branches={branches}
+              mayWrite={mayWrite}
+              onChanged={onChanged}
+            />
           )}
 
           <RequirementList

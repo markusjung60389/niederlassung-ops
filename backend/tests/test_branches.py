@@ -105,6 +105,48 @@ def test_selecting_a_branch_outside_the_scope_returns_nothing_not_everything(cli
     assert response.json() == []
 
 
+def test_the_bootstrap_only_lists_the_callers_branches(client):
+    """It drives the branch switcher: an entry there is an entry one may open."""
+    other = make_branch(client)
+    mine = client.get("/api/bootstrap", headers=auth(MANAGER)).json()
+    assert [item["id"] for item in mine["branches"]] == [BRANCH]
+
+    theirs = client.get("/api/bootstrap", headers=auth(AREA_MANAGER)).json()
+    assert other in [item["id"] for item in theirs["branches"]]
+
+
+def test_actions_of_another_branch_stay_invisible(client):
+    other = make_branch(client)
+    record = client.post(
+        "/api/compliance-records",
+        headers=auth(AREA_MANAGER),
+        json={
+            "title": "Fremde Pflicht",
+            "category": "training_instruction",
+            "branch_id": other,
+            "owner_user_id": AREA_MANAGER,
+            "legal_basis": "ArbSchG",
+            "control_type": "training",
+            "due_date": date.today().isoformat(),
+            "review_date": date.today().isoformat(),
+        },
+    ).json()
+    client.post(
+        f"/api/compliance-records/{record['id']}/actions",
+        headers=auth(AREA_MANAGER),
+        json={
+            "title": "Fremde Massnahme",
+            "owner_user_id": AREA_MANAGER,
+            "due_date": date.today().isoformat(),
+        },
+    )
+
+    mine = client.get("/api/actions", headers=auth(MANAGER)).json()
+    assert "Fremde Massnahme" not in [item["title"] for item in mine]
+    theirs = client.get("/api/actions", headers=auth(AREA_MANAGER)).json()
+    assert "Fremde Massnahme" in [item["title"] for item in theirs]
+
+
 def test_creating_in_a_foreign_branch_is_refused(client):
     other = make_branch(client)
     response = client.post(

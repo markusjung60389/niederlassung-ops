@@ -25,6 +25,11 @@ export type RecordItem = {
   id: string;
   title: string;
   category: string;
+  branch_id?: string;
+  /** The rule this is an instance of, if any. */
+  rule_id?: string | null;
+  /** "group" or "branch": whether the branch may change the obligation. */
+  rule_scope?: string | null;
   status: string;
   priority: string;
   owner_user_id: string;
@@ -75,6 +80,8 @@ export type QualificationType = {
   code: string;
   name: string;
   category: string;
+  /** null means the entry applies group-wide. */
+  branch_id?: string | null;
   validity_months?: number | null;
   reminder_days: number;
   evidence_required: boolean;
@@ -97,6 +104,7 @@ export type JobRole = {
   id: string;
   name: string;
   description?: string | null;
+  branch_id?: string | null;
   active: boolean;
   requirements: JobRoleRequirement[];
   employee_count: number;
@@ -128,6 +136,9 @@ export type RequirementState = {
   issued_on?: string | null;
   qualification_id?: string | null;
   has_evidence: boolean;
+  /** Set when the branch has an exception from this group requirement. */
+  override_mode?: string | null;
+  override_reason?: string | null;
 };
 
 export type Readiness = "ready" | "limited" | "blocked";
@@ -154,6 +165,10 @@ export type Employee = {
   open_requirements: number;
   next_due_title?: string | null;
   next_due_date?: string | null;
+  /** Home branch plus every branch the person is deployed to. */
+  branch_ids: string[];
+  /** Deployability per branch: requirements differ, so the verdict does too. */
+  readiness_by_branch: Record<string, Readiness>;
 };
 
 export type MatrixCell = {
@@ -191,7 +206,13 @@ export type ComplianceTemplate = {
 
 export type Vehicle = {
   id: string;
+  /** The branch that owns it. */
   branch_id: string;
+  /** Set while it stands somewhere else. */
+  current_branch_id?: string | null;
+  current_branch_name?: string | null;
+  /** Where it actually is: current branch, or home when not on loan. */
+  location_branch_id?: string | null;
   license_plate: string;
   brand?: string | null;
   model?: string | null;
@@ -258,7 +279,80 @@ export type Cockpit = {
   first_aiders?: FirstAiderStatus | null;
 };
 
-export type Branch = { id: string; name: string };
+export type Branch = {
+  id: string;
+  name: string;
+  /** Short marker for tight cells and the branch switcher. */
+  code?: string | null;
+  location?: string | null;
+  active?: boolean;
+  manager_user_id?: string | null;
+};
+
+/** One row of the area manager's overview: the same figures for every branch. */
+export type PortfolioRow = {
+  branch_id: string;
+  branch_name: string;
+  code?: string | null;
+  headcount: number;
+  blocked: number;
+  limited: number;
+  overdue_compliance: number;
+  due_vehicles: number;
+  first_aiders_trained: number;
+  first_aiders_required: number;
+  open_exceptions: number;
+  new_exceptions: number;
+  state: State;
+};
+
+/** A branch deviating from a group requirement, with its reason. */
+export type RequirementOverride = {
+  id: string;
+  branch_id: string;
+  branch_name: string;
+  requirement_id: string;
+  job_role_id: string;
+  job_role_name: string;
+  qualification_name: string;
+  mode: "excluded" | "mandatory" | "optional";
+  reason: string;
+  valid_until?: string | null;
+  created_by?: string | null;
+  created_at: string;
+  acknowledged_at?: string | null;
+  revoked_at?: string | null;
+  revoked_reason?: string | null;
+  revoked_effective_from?: string | null;
+  active: boolean;
+};
+
+/** The obligation itself, separate from each branch's work on it. */
+export type ComplianceRule = {
+  id: string;
+  title: string;
+  category: string;
+  control_type: string;
+  recurrence: string;
+  legal_basis: string;
+  priority: string;
+  risk_if_missing?: string | null;
+  /** null means group-wide. */
+  branch_id?: string | null;
+  branch_name?: string | null;
+  valid_from?: string | null;
+  first_due_date?: string | null;
+  active: boolean;
+  record_count: number;
+  branch_ids: string[];
+};
+
+export type ScopeChangePreview = {
+  creates_in: string[];
+  detaches_in: string[];
+  unchanged_in: string[];
+  newly_blocked_employees: number;
+};
 export type User = { id: string; display_name: string };
 
 export type Bootstrap = {

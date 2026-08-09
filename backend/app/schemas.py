@@ -721,8 +721,6 @@ class CockpitResponse(BaseModel):
     expiring_qualifications: list[EmployeeQualificationRead]
     incidents: list[IncidentRead]
     reminders: list[ReminderRead]
-    pipeline_value: float
-    service_due_count: int
     vehicle_due_count: int
     employee_due_count: int
     blocked_employees: int = 0

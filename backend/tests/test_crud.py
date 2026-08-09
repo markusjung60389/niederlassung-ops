@@ -110,44 +110,30 @@ def test_viewer_cannot_delete(client):
 # --- sales and service, previously unreachable ----------------------------
 
 
-def test_pipeline_metric_reflects_real_opportunities(client):
-    """This tile could only ever show 0 because opportunities had no API."""
-    cockpit = client.get("/api/cockpit", headers=auth(MANAGER)).json()
-    assert next(m for m in cockpit["metrics"] if m["label"] == "Pipeline (EUR)")["value"] == 0.0
+def test_sales_data_stays_reachable_through_the_api(client):
+    """The sales screens are gone; the data behind them is not.
 
+    Accounts, opportunities and service contracts keep their tables and their
+    endpoints, so nothing recorded so far is lost - the branch simply does not
+    work in them here any more.
+    """
     account = make_account(client)
-    for volume, offer_status in [(10000, "offer_sent"), (25000, "negotiation"), (99999, "lost")]:
-        client.post(
-            "/api/opportunities",
-            headers=auth(MANAGER),
-            json={
-                "account_id": account["id"],
-                "title": f"Chance {volume}",
-                "expected_volume": volume,
-                "offer_status": offer_status,
-            },
-        )
-
-    cockpit = client.get("/api/cockpit", headers=auth(MANAGER)).json()
-    # Lost deals are excluded from the pipeline.
-    assert next(m for m in cockpit["metrics"] if m["label"] == "Pipeline (EUR)")["value"] == 35000.0
-    assert cockpit["pipeline_value"] == 35000.0
-
-
-def test_service_due_metric_reflects_real_contracts(client):
-    account = make_account(client)
-    client.post(
-        "/api/service-contracts",
+    created = client.post(
+        "/api/opportunities",
         headers=auth(MANAGER),
-        json={"account_id": account["id"], "title": "Wartung faellig", "next_maintenance_at": "2020-01-01"},
+        json={"account_id": account["id"], "title": "Chance", "expected_volume": 10000},
     )
-    client.post(
-        "/api/service-contracts",
-        headers=auth(MANAGER),
-        json={"account_id": account["id"], "title": "Wartung spaeter", "next_maintenance_at": "2099-01-01"},
-    )
+    assert created.status_code == 201, created.text
+
+    listed = client.get("/api/opportunities", headers=auth(MANAGER)).json()
+    assert "Chance" in [item["title"] for item in listed]
+
+
+def test_the_cockpit_no_longer_reports_sales_figures(client):
     cockpit = client.get("/api/cockpit", headers=auth(MANAGER)).json()
-    assert cockpit["service_due_count"] == 1
+    labels = [metric["label"] for metric in cockpit["metrics"]]
+    assert not any("Pipeline" in label for label in labels)
+    assert "Service faellig" not in labels
 
 
 @pytest.mark.parametrize(

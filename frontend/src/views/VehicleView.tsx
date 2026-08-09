@@ -1,7 +1,7 @@
 import React from "react";
-import { Pencil, Plus, Trash2, TriangleAlert } from "lucide-react";
+import { MapPin, Pencil, Plus, Trash2, TriangleAlert } from "lucide-react";
 import { apiDelete, apiPatch, apiPost } from "../api";
-import { can, type Bootstrap, type Employee, type Vehicle } from "../types";
+import { can, type Branch, type Employee, type Vehicle } from "../types";
 import { ActionCell, Cell, Row, Table, TitleCell } from "../components/Table";
 import { ConfirmDialog, Modal } from "../components/Modal";
 import {
@@ -25,19 +25,22 @@ import {
 } from "../components/ui";
 
 const COLUMNS = "112px minmax(0,1.4fr) minmax(0,1.1fr) 104px 104px 104px 92px";
-type Filter = "all" | "due" | "unassigned";
+type Filter = "all" | "due" | "unassigned" | "away";
 
 export function VehicleView({
   vehicles,
   employees,
-  bootstrap,
+  branches,
+  branchId,
   permissions,
   onReload,
   onToast,
 }: {
   vehicles: Vehicle[];
   employees: Employee[];
-  bootstrap: Bootstrap;
+  branches: Branch[];
+  /** The selected branch, or null while every branch is shown at once. */
+  branchId: string | null;
   permissions: string[];
   onReload: () => void;
   onToast: (message: string) => void;
@@ -46,6 +49,7 @@ export function VehicleView({
   const [filter, setFilter] = React.useState<Filter>("all");
   const [search, setSearch] = React.useState("");
   const [editing, setEditing] = React.useState<Vehicle | null | "new">(null);
+  const [relocating, setRelocating] = React.useState<Vehicle | null>(null);
   const [detail, setDetail] = React.useState<string | null>(null);
   const [confirm, setConfirm] = React.useState<Vehicle | null>(null);
   const remove = useAction(() => {
@@ -58,12 +62,14 @@ export function VehicleView({
     all: vehicles.length,
     due: vehicles.filter((item) => item.due_state !== "green" || item.driver_alert).length,
     unassigned: vehicles.filter((item) => !item.assigned_employee_id).length,
+    away: vehicles.filter((item) => Boolean(item.current_branch_id)).length,
   };
 
   const visible = vehicles
     .filter((item) => {
       if (filter === "due") return item.due_state !== "green" || Boolean(item.driver_alert);
       if (filter === "unassigned") return !item.assigned_employee_id;
+      if (filter === "away") return Boolean(item.current_branch_id);
       return true;
     })
     .filter((item) => {
@@ -88,6 +94,9 @@ export function VehicleView({
             { key: "all", label: "Alle", count: counts.all },
             { key: "due", label: "Handlungsbedarf", count: counts.due },
             { key: "unassigned", label: "Ohne Fahrer", count: counts.unassigned },
+            ...(branches.length > 1
+              ? [{ key: "away" as Filter, label: "Verliehen", count: counts.away }]
+              : []),
           ]}
         />
         <div className="ops-row ops-spacer">
@@ -134,7 +143,12 @@ export function VehicleView({
             </Cell>
             <TitleCell
               title={vehicle.license_plate}
-              meta={[vehicle.brand, vehicle.model, vehicle.vehicle_type].filter(Boolean).join(" ") || "-"}
+              meta={
+                <>
+                  {[vehicle.brand, vehicle.model, vehicle.vehicle_type].filter(Boolean).join(" ") || "-"}
+                  {vehicle.current_branch_name && ` · steht in ${vehicle.current_branch_name}`}
+                </>
+              }
             />
             <Cell title={vehicle.driver_alert ?? undefined}>
               {vehicle.assigned_employee_name ? (
@@ -162,6 +176,17 @@ export function VehicleView({
             <ActionCell>
               {mayWrite && (
                 <>
+                  {branches.length > 1 && (
+                    <button
+                      type="button"
+                      className="pds-icon-btn"
+                      aria-label={`${vehicle.license_plate} verlegen`}
+                      title="In eine andere Niederlassung verlegen"
+                      onClick={() => setRelocating(vehicle)}
+                    >
+                      <MapPin size={14} />
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="pds-icon-btn"
@@ -189,10 +214,24 @@ export function VehicleView({
         <VehicleDialog
           vehicle={editing === "new" ? null : editing}
           employees={employees}
-          bootstrap={bootstrap}
+          branches={branches}
+          branchId={branchId}
           onClose={() => setEditing(null)}
           onSaved={(message) => {
             setEditing(null);
+            onToast(message);
+            onReload();
+          }}
+        />
+      )}
+
+      {relocating && (
+        <RelocateDialog
+          vehicle={relocating}
+          branches={branches}
+          onClose={() => setRelocating(null)}
+          onSaved={(message) => {
+            setRelocating(null);
             onToast(message);
             onReload();
           }}
@@ -235,13 +274,15 @@ export function VehicleView({
 function VehicleDialog({
   vehicle,
   employees,
-  bootstrap,
+  branches,
+  branchId,
   onClose,
   onSaved,
 }: {
   vehicle: Vehicle | null;
   employees: Employee[];
-  bootstrap: Bootstrap;
+  branches: Branch[];
+  branchId: string | null;
   onClose: () => void;
   onSaved: (message: string) => void;
 }) {
@@ -249,14 +290,16 @@ function VehicleDialog({
   const { error, busy, run } = useSubmit(() =>
     onSaved(vehicle ? "Aenderungen gespeichert" : "Fahrzeug angelegt")
   );
-  const branchId = vehicle?.branch_id ?? bootstrap.branches[0]?.id;
+  const [homeBranch, setHomeBranch] = React.useState(
+    vehicle?.branch_id ?? branchId ?? branches[0]?.id ?? ""
+  );
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
     const data = new FormData(form);
     run(form, async () => {
-      if (!branchId) throw new Error("Keine Niederlassung verfuegbar.");
+      if (!homeBranch) throw new Error("Keine Niederlassung verfuegbar.");
       const payload = {
         license_plate: data.get("license_plate"),
         brand: emptyToNull(data.get("brand")),
@@ -279,7 +322,7 @@ function VehicleDialog({
         notes: emptyToNull(data.get("notes")),
       };
       if (vehicle) await apiPatch(`/api/vehicles/${vehicle.id}`, payload);
-      else await apiPost("/api/vehicles", { branch_id: branchId, ...payload });
+      else await apiPost("/api/vehicles", { branch_id: homeBranch, ...payload });
     });
   }
 
@@ -313,6 +356,17 @@ function VehicleDialog({
 
         <Fieldset legend="Fahrzeug">
           <div className="ops-grid">
+            {!vehicle && branches.length > 1 && (
+              <Field label="Heimat-Niederlassung">
+                <Select value={homeBranch} onChange={(event) => setHomeBranch(event.target.value)}>
+                  {branches.map((branch) => (
+                    <option key={branch.id} value={branch.id}>
+                      {branch.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            )}
             <Field label="Kennzeichen">
               <TextInput
                 name="license_plate"
@@ -439,6 +493,98 @@ function VehicleDialog({
 }
 
 /* --------------------------------------------------------------------------
+ * Relocation
+ * ----------------------------------------------------------------------- */
+
+/**
+ * Moving a vehicle to another branch.
+ *
+ * Two different things, deliberately one dialog with one switch: on loan, the
+ * home branch keeps it on its books while the receiving branch is responsible
+ * for HU, UVV and the driver; for good, the vehicle changes hands entirely.
+ * Either way it appears in the fleet list where it actually stands, because
+ * that is where somebody has to act on a due date.
+ */
+function RelocateDialog({
+  vehicle,
+  branches,
+  onClose,
+  onSaved,
+}: {
+  vehicle: Vehicle;
+  branches: Branch[];
+  onClose: () => void;
+  onSaved: (message: string) => void;
+}) {
+  const [target, setTarget] = React.useState(vehicle.location_branch_id ?? vehicle.branch_id);
+  const [permanent, setPermanent] = React.useState(false);
+  const home = branches.find((item) => item.id === vehicle.branch_id);
+  const { error, busy, run } = useAction(() =>
+    onSaved(permanent ? "Fahrzeug uebergeben" : "Fahrzeug verlegt")
+  );
+
+  return (
+    <Modal
+      open
+      size="sm"
+      title="Fahrzeug verlegen"
+      subtitle={`${vehicle.license_plate}${home ? ` · Heimat ${home.name}` : ""}`}
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className="pds-btn pds-btn--outline pds-btn--sm" onClick={onClose}>
+            Abbrechen
+          </button>
+          <span className="ops-spacer" />
+          <button
+            type="button"
+            className="pds-btn pds-btn--primary pds-btn--sm"
+            disabled={busy}
+            onClick={() =>
+              run(() =>
+                apiPost(`/api/vehicles/${vehicle.id}/relocate`, {
+                  branch_id: target === vehicle.branch_id && !permanent ? null : target,
+                  permanent,
+                })
+              )
+            }
+          >
+            {busy ? "Wird uebernommen..." : "Verlegen"}
+          </button>
+        </>
+      }
+    >
+      <div className="ops-dialog__body">
+        <FormStatus error={error} busy={false} />
+        <Field label="Steht kuenftig in">
+          <Select value={target} onChange={(event) => setTarget(event.target.value)}>
+            {branches.map((branch) => (
+              <option key={branch.id} value={branch.id}>
+                {branch.name}
+                {branch.id === vehicle.branch_id ? " (Heimat)" : ""}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <label className="ops-check">
+          <input
+            type="checkbox"
+            checked={permanent}
+            onChange={(event) => setPermanent(event.target.checked)}
+          />
+          Dauerhaft uebergeben (Heimat-Niederlassung wechselt)
+        </label>
+        <p className="pds-meta">
+          {permanent
+            ? "Das Fahrzeug gehoert danach zur neuen Niederlassung - inklusive Kosten und Halterpflichten."
+            : "Leihweise: die Heimat-Niederlassung behaelt das Fahrzeug in ihrem Bestand, faellig ist es dort, wo es steht."}
+        </p>
+      </div>
+    </Modal>
+  );
+}
+
+/* --------------------------------------------------------------------------
  * Detail
  * ----------------------------------------------------------------------- */
 
@@ -482,6 +628,8 @@ function VehicleDetail({
           </div>
         )}
         <dl className="ops-facts">
+          <dt>Steht in</dt>
+          <dd>{vehicle.current_branch_name ?? "der Heimat-Niederlassung"}</dd>
           <dt>Zugeordnet an</dt>
           <dd>{vehicle.assigned_employee_name ?? "niemandem"}</dd>
           <dt>Eigentum</dt>

@@ -66,6 +66,20 @@ button {
   white-space: nowrap;
 }
 
+/* Branch switcher: the one control that changes what every screen shows, so
+   it sits next to the identity rather than inside a view. */
+.ops-branch {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  color: var(--pds-text-2);
+}
+
+.ops-branch select {
+  width: 190px;
+}
+
 .ops-stack {
   display: grid;
   gap: 16px;
