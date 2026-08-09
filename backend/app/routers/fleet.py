@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -14,7 +14,6 @@ router = APIRouter(tags=["fleet"])
 
 WriteDep = Annotated[Principal, Depends(requires(permissions.FLEET_WRITE))]
 ReadDep = Annotated[Principal, Depends(requires(permissions.FLEET_READ))]
-read_dependency = Depends(requires(permissions.FLEET_READ))
 
 # Where the vehicle actually is: on loan that is not its home branch.
 LOCATION_BRANCH = func.coalesce(models.Vehicle.current_branch_id, models.Vehicle.branch_id)
@@ -58,11 +57,64 @@ def create_vehicle(
     return vehicle_read(vehicle)
 
 
-@router.get(
-    "/api/vehicles/{vehicle_id}", response_model=schemas.VehicleRead, dependencies=[read_dependency]
-)
-def get_vehicle(vehicle_id: str, db: Session = Depends(get_db)) -> schemas.VehicleRead:
-    return vehicle_read(get_or_404(db, models.Vehicle, vehicle_id, "Vehicle"))
+@router.get("/api/vehicles/{vehicle_id}", response_model=schemas.VehicleRead)
+def get_vehicle(
+    vehicle_id: str, principal: ReadDep, db: Session = Depends(get_db)
+) -> schemas.VehicleRead:
+    vehicle = get_or_404(db, models.Vehicle, vehicle_id, "Vehicle")
+    # Home branch or current location: whoever is responsible for it may read
+    # it, everyone else is told it does not exist rather than that it is theirs.
+    if not (principal.may_see(vehicle.branch_id) or principal.may_see(vehicle.location_branch_id)):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
+    return vehicle_read(vehicle)
+
+
+@router.post("/api/vehicles/{vehicle_id}/relocate", response_model=schemas.VehicleRead)
+def relocate_vehicle(
+    vehicle_id: str,
+    payload: schemas.VehicleRelocate,
+    principal: WriteDep,
+    db: Session = Depends(get_db),
+) -> schemas.VehicleRead:
+    """Moves a vehicle to another branch, on loan or for good.
+
+    Both branches have to be within the caller's scope: handing a vehicle to a
+    branch one does not run would leave its manager with an HU date they never
+    agreed to.
+    """
+    vehicle = get_or_404(db, models.Vehicle, vehicle_id, "Vehicle")
+    ensure_ref(db, models.Branch, payload.branch_id, "branch_id")
+    ensure_branch_access(principal, vehicle.location_branch_id)
+    target = payload.branch_id or vehicle.branch_id
+    ensure_branch_access(principal, target)
+
+    before = {"branch_id": vehicle.branch_id, "current_branch_id": vehicle.current_branch_id}
+    if payload.permanent:
+        vehicle.branch_id = target
+        vehicle.current_branch_id = None
+    else:
+        # Standing at home again is the absence of a loan, not a loan to home.
+        vehicle.current_branch_id = None if target == vehicle.branch_id else target
+
+    audit(
+        db,
+        "vehicle",
+        vehicle_id,
+        "relocated",
+        {
+            "before": before,
+            "after": {
+                "branch_id": vehicle.branch_id,
+                "current_branch_id": vehicle.current_branch_id,
+            },
+            "permanent": payload.permanent,
+            "note": payload.note,
+        },
+        principal,
+    )
+    db.commit()
+    db.refresh(vehicle)
+    return vehicle_read(vehicle)
 
 
 @router.patch("/api/vehicles/{vehicle_id}", response_model=schemas.VehicleRead)
@@ -90,6 +142,8 @@ def update_vehicle(
 @router.delete("/api/vehicles/{vehicle_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_vehicle(vehicle_id: str, principal: WriteDep, db: Session = Depends(get_db)) -> Response:
     vehicle = get_or_404(db, models.Vehicle, vehicle_id, "Vehicle")
+    # The home branch owns it: a branch it is only on loan to may not scrap it.
+    ensure_branch_access(principal, vehicle.branch_id)
     audit(db, "vehicle", vehicle_id, "deleted", snapshot(vehicle), principal)
     db.delete(vehicle)
     db.commit()

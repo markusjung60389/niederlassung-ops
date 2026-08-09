@@ -81,6 +81,10 @@ def record_read(record: models.ComplianceRecord) -> schemas.ComplianceRecordRead
         title=record.title,
         category=record.category,
         branch_id=record.branch_id,
+        rule_id=record.rule_id,
+        # "group" or "branch": the list shows where an obligation comes from,
+        # which decides whether the branch may change it or has to ask.
+        rule_scope=None if record.rule is None else ("branch" if record.rule.branch_id else "group"),
         scope_type=record.scope_type,
         scope_id=record.scope_id,
         status=record.status,

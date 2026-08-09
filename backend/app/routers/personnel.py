@@ -96,6 +96,60 @@ def update_employee(
     return employee_read(employee)
 
 
+@router.post("/api/employees/{employee_id}/branches", response_model=schemas.EmployeeRead)
+def assign_to_branch(
+    employee_id: str,
+    payload: schemas.EmployeeBranchCreate,
+    principal: WriteDep,
+    db: Session = Depends(get_db),
+) -> schemas.EmployeeRead:
+    """Deploys somebody to a second branch besides their home branch.
+
+    Requirements add up rather than being replaced: whoever works in two
+    branches has to satisfy both sets, otherwise an exception granted in one
+    would quietly become a licence to work in the other.
+    """
+    employee = get_or_404(db, models.Employee, employee_id, "Employee")
+    ensure_ref(db, models.Branch, payload.branch_id, "branch_id")
+    # Both ends: the branch giving the person away and the one receiving them.
+    ensure_branch_access(principal, employee.branch_id)
+    ensure_branch_access(principal, payload.branch_id)
+    if payload.branch_id == employee.branch_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This is already the employee's home branch",
+        )
+    if any(link.branch_id == payload.branch_id for link in employee.branch_links):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Already deployed to this branch"
+        )
+
+    link = models.EmployeeBranch(employee_id=employee_id, branch_id=payload.branch_id, note=payload.note)
+    db.add(link)
+    db.flush()
+    audit(db, "employee", employee_id, "branch_assigned", payload.model_dump(mode="json"), principal)
+    db.commit()
+    db.refresh(employee)
+    return employee_read(employee, None, load_overrides(db))
+
+
+@router.delete("/api/employees/{employee_id}/branches/{branch_id}", response_model=schemas.EmployeeRead)
+def remove_from_branch(
+    employee_id: str, branch_id: str, principal: WriteDep, db: Session = Depends(get_db)
+) -> schemas.EmployeeRead:
+    employee = get_or_404(db, models.Employee, employee_id, "Employee")
+    ensure_branch_access(principal, employee.branch_id)
+    ensure_branch_access(principal, branch_id)
+    link = next((item for item in employee.branch_links if item.branch_id == branch_id), None)
+    if link is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Deployment not found")
+    audit(db, "employee", employee_id, "branch_removed", snapshot(link), principal)
+    db.delete(link)
+    db.commit()
+    db.refresh(employee)
+    return employee_read(employee, None, load_overrides(db))
+
+
 @router.delete("/api/employees/{employee_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_employee(employee_id: str, principal: WriteDep, db: Session = Depends(get_db)) -> Response:
     employee = get_or_404(db, models.Employee, employee_id, "Employee")

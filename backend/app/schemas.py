@@ -223,6 +223,10 @@ class ComplianceRecordRead(BaseModel):
     title: str
     category: str
     branch_id: str
+    # The rule this is the branch's instance of; None for a record that stands
+    # on its own, which is what every record was before rules existed.
+    rule_id: str | None = None
+    rule_scope: str | None = None
     scope_type: str
     scope_id: str | None = None
     status: str
@@ -396,11 +400,13 @@ class RequirementOverrideRead(BaseModel):
 
 class ComplianceRuleCreate(BaseModel):
     title: str = Field(min_length=3, max_length=200)
-    category: str = Field(max_length=80)
-    control_type: str = Field(max_length=40)
-    recurrence: str = Field(default="yearly", max_length=40)
+    # The same vocabulary the records use: a rule that materialises into a
+    # record the compliance view cannot categorise would be a rule nobody sees.
+    category: ComplianceCategory
+    control_type: ControlType
+    recurrence: Recurrence = "yearly"
     legal_basis: str = Field(min_length=2, max_length=200)
-    priority: str = Field(default="medium", max_length=40)
+    priority: Priority = "medium"
     risk_if_missing: str | None = None
     # None means group-wide.
     branch_id: str | None = None
@@ -411,11 +417,11 @@ class ComplianceRuleCreate(BaseModel):
 
 class ComplianceRuleUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=3, max_length=200)
-    category: str | None = Field(default=None, max_length=80)
-    control_type: str | None = Field(default=None, max_length=40)
-    recurrence: str | None = Field(default=None, max_length=40)
+    category: ComplianceCategory | None = None
+    control_type: ControlType | None = None
+    recurrence: Recurrence | None = None
     legal_basis: str | None = Field(default=None, min_length=2, max_length=200)
-    priority: str | None = Field(default=None, max_length=40)
+    priority: Priority | None = None
     risk_if_missing: str | None = None
     valid_from: date | None = None
     active: bool | None = None
@@ -617,6 +623,21 @@ class VehicleCreate(BaseModel):
     notes: str | None = None
     # Where the vehicle currently stands, when that is not its home branch.
     current_branch_id: str | None = None
+
+
+class VehicleRelocate(BaseModel):
+    """Moving a vehicle to another branch.
+
+    Temporary by default: the home branch keeps it on its books while the
+    receiving branch is responsible for HU, UVV and the driver. `permanent`
+    hands it over for good, which is the rarer and the more consequential of
+    the two - hence a flag rather than two fields the caller has to get right.
+    """
+
+    # None sends the vehicle back to its home branch.
+    branch_id: str | None = None
+    permanent: bool = False
+    note: str | None = None
 
 
 class VehicleRead(VehicleCreate):
