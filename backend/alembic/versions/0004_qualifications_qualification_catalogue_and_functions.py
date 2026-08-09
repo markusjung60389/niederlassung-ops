@@ -347,12 +347,12 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(
-            ["job_role_id"], ["job_roles.id"], name="fk_job_role_requirements_job_role_id_job_roles"
+            ["job_role_id"], ["job_roles.id"], name="fk_job_role_requirements_job_role_id"
         ),
         sa.ForeignKeyConstraint(
             ["qualification_type_id"],
             ["qualification_types.id"],
-            name="fk_job_role_requirements_qualification_type_id_qualification_types",
+            name="fk_job_role_requirements_qualification_type_id",
         ),
         sa.PrimaryKeyConstraint("id", name="pk_job_role_requirements"),
         sa.UniqueConstraint(
@@ -375,7 +375,7 @@ def upgrade() -> None:
             "ix_employee_qualifications_qualification_type_id", ["qualification_type_id"]
         )
         batch_op.create_foreign_key(
-            "fk_employee_qualifications_qualification_type_id_qualification_types",
+            "fk_employee_qualifications_qualification_type_id",
             "qualification_types",
             ["qualification_type_id"],
             ["id"],
@@ -392,7 +392,7 @@ def upgrade() -> None:
         batch_op.create_index("ix_employees_job_role_id", ["job_role_id"])
         batch_op.create_index("ix_employees_status", ["status"])
         batch_op.create_foreign_key(
-            "fk_employees_job_role_id_job_roles", "job_roles", ["job_role_id"], ["id"]
+            "fk_employees_job_role_id", "job_roles", ["job_role_id"], ["id"]
         )
 
     connection = op.get_bind()
@@ -412,7 +412,7 @@ def downgrade() -> None:
     )
 
     with op.batch_alter_table("employees", schema=None) as batch_op:
-        batch_op.drop_constraint("fk_employees_job_role_id_job_roles", type_="foreignkey")
+        batch_op.drop_constraint("fk_employees_job_role_id", type_="foreignkey")
         batch_op.drop_index("ix_employees_status")
         batch_op.drop_index("ix_employees_job_role_id")
         batch_op.drop_column("exit_date")
@@ -421,8 +421,7 @@ def downgrade() -> None:
 
     with op.batch_alter_table("employee_qualifications", schema=None) as batch_op:
         batch_op.drop_constraint(
-            "fk_employee_qualifications_qualification_type_id_qualification_types",
-            type_="foreignkey",
+            "fk_employee_qualifications_qualification_type_id", type_="foreignkey"
         )
         batch_op.drop_index("ix_employee_qualifications_qualification_type_id")
         batch_op.drop_column("issued_on")

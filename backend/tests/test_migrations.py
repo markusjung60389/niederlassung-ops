@@ -306,3 +306,22 @@ def test_downgrade_keeps_the_profile_dates_the_copy_came_from(legacy_db):
             sa.text("SELECT * FROM employee_profiles WHERE employee_id = 'e1'")
         ).mappings().one()
         assert profile["ipaf_valid_until"] == "2029-05-01"
+
+
+def test_no_constraint_name_exceeds_the_postgres_identifier_limit():
+    """PostgreSQL truncates identifiers at 63 characters and SQLAlchemy refuses
+    to guess; SQLite accepts any length.
+
+    A name that is too long therefore passes every local run and only fails
+    once the migration reaches PostgreSQL - which is exactly how
+    `fk_job_role_requirements_qualification_type_id_qualification_types` (66)
+    got as far as CI.
+    """
+    import re
+
+    too_long = []
+    for path in sorted((BACKEND_ROOT / "alembic" / "versions").glob("*.py")):
+        for name in re.findall(r'name="([a-z0-9_]+)"', path.read_text()):
+            if len(name) > 63:
+                too_long.append(f"{path.name}: {name} ({len(name)})")
+    assert not too_long, "constraint names over 63 characters:\n" + "\n".join(too_long)
