@@ -72,6 +72,25 @@ sie mit Zeilen und prueft nach der Migration, dass alles noch da ist:
 - Doppelte Profile landen in `audit_log`, statt verworfen zu werden
 - Zweimaliges Migrieren aendert nichts
 - Downgrade und erneutes Upgrade lassen die Daten unangetastet
+- Schulungsdaten aus dem Pflichtenprofil werden nach `employee_qualifications`
+  **kopiert**, die Quellspalten bleiben unveraendert - auch nach einem Downgrade
+- Freitextrollen werden mit der passenden Funktion verknuepft, ohne den
+  Freitext zu ueberschreiben
 - Modelle und Migrationen sind deckungsgleich
+
+## Datenmigrationen
+
+`0004_qualifications` verschiebt Fachdaten und nicht nur Struktur. Die Regel
+dafuer, abgeleitet aus dieser Migration:
+
+**Kopieren, nicht verschieben.** Die Quellspalten bleiben stehen und werden nur
+nicht mehr gelesen. Ist die Zuordnung fachlich falsch, laesst sie sich ohne
+Ruecksicherung korrigieren. Entfernt wird die alte Spalte erst in einer
+spaeteren Version - und dann als eigener, fuer sich pruefbarer Schritt.
+
+**Referenzdaten mit festen IDs.** Der Qualifikationskatalog wird in der
+Migration mit denselben IDs angelegt, die `app/catalog.py` verwendet. Die
+Erstbefuellung beim Start findet die Zeilen dadurch wieder und legt keine
+zweite Fassung an.
 
 Wer eine Migration hinzufuegt, ergaenzt hier den passenden Fall.
