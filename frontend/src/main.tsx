@@ -177,8 +177,14 @@ function useOpsData(permissions: string[], branchId: string | null) {
   const [error, setError] = React.useState<string | null>(null);
 
   const key = permissions.join(",");
+  // Every load is numbered. Switching the branch starts a second load while
+  // the first is still running, and without this the slower unscoped answer
+  // would overwrite the scoped one - the list then shows branches the switcher
+  // says are not selected.
+  const generation = React.useRef(0);
 
   const load = React.useCallback(async () => {
+    const mine = ++generation.current;
     setLoading(true);
     try {
       // Only the endpoints the caller is allowed to see are requested, so a
@@ -233,6 +239,7 @@ function useOpsData(permissions: string[], branchId: string | null) {
           : Promise.resolve([]),
       ]);
 
+      if (mine !== generation.current) return;
       setCockpit(cockpitData);
       setAssessments(assessmentData);
       setRecords(recordData);
@@ -249,9 +256,9 @@ function useOpsData(permissions: string[], branchId: string | null) {
       setError(null);
       setReady(true);
     } catch (caught) {
-      setError(errorMessage(caught));
+      if (mine === generation.current) setError(errorMessage(caught));
     } finally {
-      setLoading(false);
+      if (mine === generation.current) setLoading(false);
     }
     // `permissions` is a fresh array on every render; the joined key is stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps

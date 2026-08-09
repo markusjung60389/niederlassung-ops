@@ -33,8 +33,8 @@ import {
  * decide for itself - they only work while somebody above sees them.
  */
 
-const BRANCH_COLUMNS = "88px minmax(0,1.4fr) 92px 104px 104px 104px 116px 44px";
-const EXCEPTION_COLUMNS = "minmax(0,1.1fr) minmax(0,1.3fr) 108px minmax(0,1.4fr) 112px 88px";
+const BRANCH_COLUMNS = "104px minmax(0,1.3fr) 88px 152px 108px 104px 104px 44px";
+const EXCEPTION_COLUMNS = "minmax(0,1fr) minmax(0,1.2fr) 116px minmax(0,1.5fr) 108px 88px";
 
 type Tab = "open" | "new" | "revoked";
 
@@ -114,8 +114,8 @@ export function PortfolioView({
             "Status",
             "Niederlassung",
             "Personal",
-            "Nicht einsatzfaehig",
-            "Compliance",
+            "Nicht einsetzbar",
+            "Ueberfaellig",
             "Fahrzeuge",
             "Ersthelfer",
             "",
@@ -148,7 +148,7 @@ export function PortfolioView({
                 <Cell className={`ops-date${row.blocked ? " is-red" : ""}`}>
                   {row.blocked}
                   {row.limited > 0 && (
-                    <span className="ops-cell__meta">{row.limited} eingeschraenkt</span>
+                    <span className="ops-cell__meta">+{row.limited} eingeschraenkt</span>
                   )}
                 </Cell>
                 <Cell className={`ops-date${row.overdue_compliance ? " is-red" : ""}`}>

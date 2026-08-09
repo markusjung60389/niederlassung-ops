@@ -18,6 +18,12 @@ export async function gotoAs(page: Page, route: string, userId: string = MANAGER
     ([key, value]) => window.localStorage.setItem(key, value),
     [DEV_USER_STORAGE_KEY, userId] as const
   );
+  // A page is already open: going to another route would only change the hash,
+  // the document would never be re-created and the init script above would
+  // never run - the identity would silently stay the previous one. Worse, the
+  // running application would first see a route it may not open and redirect
+  // away from it. The blank page in between makes it a real navigation.
+  if (page.url().startsWith("http")) await page.goto("about:blank");
   await page.goto(`/#/${route}`);
   await expect(page.locator(".pds-topbar")).toBeVisible();
   await expect(page.getByText("Daten werden geladen...")).toHaveCount(0);

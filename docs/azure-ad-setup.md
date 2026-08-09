@@ -34,7 +34,8 @@ Zwei Registrierungen, weil SPA und API unterschiedliche Token-Typen brauchen.
 
    | Wert | Anzeigename | Gedacht fuer |
    | --- | --- | --- |
-   | `OpsManager` | Niederlassungsleitung | Vollzugriff |
+   | `OpsAreaManager` | Bereichsleitung | Vollzugriff ueber alle Niederlassungen |
+   | `OpsManager` | Niederlassungsleitung | Volle Fachrechte in der eigenen Niederlassung |
    | `OpsHSE` | HSE / Compliance | Compliance und Incidents schreiben, Personal lesen |
    | `OpsViewer` | Betrachter | nur Lesen |
 
@@ -54,7 +55,7 @@ Die Werte der App-Rollen werden auf die Rollennamen der `roles`-Tabelle abgebild
 (angelegt durch `backend/app/seed.py`):
 
 ```env
-AZURE_ROLE_MAP=OpsManager=Niederlassungsleiter,OpsHSE=HSE / Compliance,OpsViewer=Betrachter
+AZURE_ROLE_MAP=OpsAreaManager=Bereichsleiter,OpsManager=Niederlassungsleiter,OpsHSE=HSE / Compliance,OpsViewer=Betrachter
 ```
 
 Gruppen-Objekt-IDs funktionieren genauso, falls statt App-Rollen mit Gruppen
@@ -74,7 +75,7 @@ AUTH_MODE=azure_ad
 AZURE_TENANT_ID=<Verzeichnis-(Mandanten)-ID>
 AZURE_CLIENT_ID=<API-CLIENT-ID>
 AZURE_API_AUDIENCE=api://<API-CLIENT-ID>     # optional, wird sonst abgeleitet
-AZURE_ROLE_MAP=OpsManager=Niederlassungsleiter,OpsHSE=HSE / Compliance,OpsViewer=Betrachter
+AZURE_ROLE_MAP=OpsAreaManager=Bereichsleiter,OpsManager=Niederlassungsleiter,OpsHSE=HSE / Compliance,OpsViewer=Betrachter
 AZURE_AUTO_PROVISION_USERS=true
 APP_ENV=production
 ```
@@ -121,12 +122,19 @@ Erwartet: `source: "azure-ad"`, der gemappte `role_name` und die Berechtigungsli
 
 | Rolle | Berechtigungen |
 | --- | --- |
-| Niederlassungsleiter | `*` |
-| HSE / Compliance | `compliance:*`, `incident:*`, `personnel:read`, `fleet:read`, `assessment:read`, `sales:read`, `agent:run`, `audit:read` |
+| Bereichsleiter | `*` |
+| Niederlassungsleiter | alle Bereichsrechte, aber **kein** `rule:write` und `branch:write` |
+| HSE / Compliance | `compliance:*`, `incident:*`, `personnel:read`, `fleet:read`, `assessment:read`, `sales:read`, `rule:read`, `branch:read`, `agent:run`, `audit:read` |
 | Betrachter | alle `:read` |
 
 Definiert in `backend/app/permissions.py`. Die Presets sind fuehrend: bei einer
 Aenderung werden die Rollen beim naechsten Start abgeglichen.
+
+Die Rolle sagt nur, **was** jemand darf. **Wo** er es darf, haengt am Konto:
+`users.all_branches` fuer die Bereichsleitung, sonst je Zeile in
+`user_branches`. Ein frisch ueber Azure AD angelegtes Konto hat noch keine
+Zuordnung und sieht damit nichts - die Niederlassung wird nach der ersten
+Anmeldung gesetzt. Siehe [`niederlassungen.md`](niederlassungen.md).
 
 ## Offene Punkte vor dem Produktivgang
 

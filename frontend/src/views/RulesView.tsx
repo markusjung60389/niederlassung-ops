@@ -35,7 +35,7 @@ import {
  * be restricted to one branch without the other branches losing their evidence.
  */
 
-const COLUMNS = "112px minmax(0,1.8fr) minmax(0,1fr) 128px 108px 92px";
+const COLUMNS = "124px minmax(0,1.7fr) minmax(0,1fr) 120px 148px 116px";
 type Scope = "all" | "group" | "local";
 
 export function RulesView({

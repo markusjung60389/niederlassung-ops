@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import {
+  AREA_MANAGER,
   JOB_ROLE,
   QUALIFICATION,
   api,
@@ -80,7 +81,9 @@ test.describe("Stammdaten", () => {
     const name = unique("E2E Schein");
     const code = `e2e_${Date.now().toString(36)}`;
 
-    await gotoAs(page, "stammdaten");
+    // Als Bereichsleiter: eine Qualifikationsart ohne Niederlassung gilt fuer
+    // die ganze Gruppe, und genau das darf die Niederlassung nicht.
+    await gotoAs(page, "stammdaten", AREA_MANAGER);
     await createButton(page, "Qualifikationsart").click();
     await dialog(page).getByLabel("Bezeichnung").fill(name);
     await dialog(page).getByLabel("Kuerzel").fill(code);
@@ -112,7 +115,9 @@ test.describe("Stammdaten", () => {
       "ready"
     );
 
-    await gotoAs(page, "stammdaten");
+    // Der Monteur ist eine Gruppenfunktion: seine Anforderungen aendert nur
+    // die Bereichsleitung, die Niederlassung setzt stattdessen eine Ausnahme.
+    await gotoAs(page, "stammdaten", AREA_MANAGER);
     await row(section(page, "Funktionen und ihre Anforderungen"), "Monteur").click();
     await expect(dialog(page)).toContainText("Anforderungen: Monteur");
 

@@ -10,10 +10,33 @@ import { BACKEND_URL } from "../../playwright.config";
  * would light up the whole suite.
  */
 
+export const AREA_MANAGER = "user-area-manager";
 export const MANAGER = "user-branch-manager";
 export const HSE = "user-hse";
 export const VIEWER = "user-viewer";
 export const BRANCH = "branch-remscheid";
+
+/**
+ * A second branch, created once and reused.
+ *
+ * The seed deliberately creates only Remscheid - the names of the other
+ * branches belong to the organisation, not to a seed file - so the multi-branch
+ * specs create their own and the single-branch specs never see it.
+ */
+export async function ensureSecondBranch(
+  request: APIRequestContext,
+  name = "E2E Solingen",
+  code = "SG"
+): Promise<{ id: string; name: string; code: string }> {
+  const existing = await api.get<{ id: string; name: string; code: string }[]>(
+    request,
+    "/api/branches",
+    AREA_MANAGER
+  );
+  const match = existing.find((item) => item.name === name);
+  if (match) return match;
+  return api.post(request, "/api/branches", { name, code, location: name }, AREA_MANAGER);
+}
 
 export const JOB_ROLE = {
   projektleiter: "jr-projektleiter",

@@ -2,10 +2,16 @@
 
 [![CI](https://github.com/markusjung60389/niederlassung-ops/actions/workflows/ci.yml/badge.svg)](https://github.com/markusjung60389/niederlassung-ops/actions/workflows/ci.yml)
 
-Separate Ops-, Compliance- und Bestandsaufnahme-Anwendung fuer die Niederlassung Remscheid von B.Schmitt mobile.
+Separate Ops-, Compliance- und Bestandsaufnahme-Anwendung fuer die
+Niederlassungen von B.Schmitt mobile - ausgehend von Remscheid, inzwischen
+fuer mehrere Standorte nebeneinander.
 
 ## Umfang
 
+- **Mehrere Niederlassungen**: Umschalter in der Kopfzeile, Portfolio ueber
+  alle Standorte, Regeln wahlweise gruppenweit oder oertlich - in beide
+  Richtungen umstellbar. Details in
+  [`docs/niederlassungen.md`](docs/niederlassungen.md)
 - **Cockpit als Arbeitsliste**: was ueberfaellig ist, was in 30 Tagen ansteht,
   wer heute nicht einsetzbar ist, Ersthelferquote nach DGUV Vorschrift 1
 - **Funktionen und Qualifikationen**: Projektleiter, Service-Techniker und
@@ -15,9 +21,13 @@ Separate Ops-, Compliance- und Bestandsaufnahme-Anwendung fuer die Niederlassung
 - **Qualifikationsmatrix**: Mitarbeiter gegen Qualifikationsarten, gefiltert
   auf Luecken
 - **Fuhrpark** mit HU, UVV, Service, Fahrerzuordnung und einer Warnung, wenn
-  die Fuehrerscheinkontrolle des zugeordneten Fahrers ueberfaellig ist
-- **Compliance-Themen** mit Vorlagenkatalog der Standardpflichten, Nachweisen
-  und Massnahmen
+  die Fuehrerscheinkontrolle des zugeordneten Fahrers ueberfaellig ist;
+  Fahrzeuge lassen sich leihweise oder dauerhaft in eine andere Niederlassung
+  verlegen
+- **Compliance-Vorgaben und -Eintraege**: die Pflicht getrennt von der Arbeit
+  daran, mit Vorlagenkatalog der Standardpflichten, Nachweisen und Massnahmen
+- **Ausnahmeregister**: was eine Niederlassung fuer sich ausgesetzt hat, mit
+  Begruendung, sichtbar fuer die Bereichsleitung und widerrufbar
 - Bestandsaufnahme als Stichtagsaufnahme der Niederlassung
 - Incident-Erfassung
 - Rollenbasierte Zugriffskontrolle auf allen API-Endpunkten
@@ -30,10 +40,14 @@ Nicht enthalten: Dashboard-Import, Shared DB, Synchronisation mit dem vorhandene
 
 ## Oberflaeche
 
-![Leitercockpit](docs/screenshots/01-cockpit.png)
+![Niederlassungen im Vergleich](docs/screenshots/01-niederlassungen.png)
+
+![Leitercockpit](docs/screenshots/02-cockpit.png)
 
 Weitere Ansichten in [`docs/screenshots/`](docs/screenshots/): Mitarbeiter,
-Qualifikationsmatrix, Fahrzeuge, Compliance und Stammdaten.
+Qualifikationsmatrix, Fahrzeuge samt Verlegen-Dialog, Compliance, Vorgaben mit
+Geltungswechsel und Stammdaten. Die Standorte ausser Remscheid sind
+Platzhalter fuer die Abbildungen.
 
 Das Erscheinungsbild folgt dem gemeinsamen PDS-Fokus-Styleguide
 ([`docs/design/`](docs/design/)), damit die Anwendung mit den uebrigen
@@ -43,9 +57,9 @@ Unternehmens-Apps zusammenpasst. Tokens und Bausteine liegen unveraendert in
 ## Tests
 
 ```bash
-cd backend && python -m pytest -q          # 158 Faelle
+cd backend && python -m pytest -q          # 186 Faelle
 cd frontend && npm run typecheck           # Oberflaeche und API-Typen
-cd frontend && npm run e2e                 # 30 E2E-Faelle im Browser
+cd frontend && npm run e2e                 # 38 E2E-Faelle im Browser
 ```
 
 Die End-to-end-Tests fahren das gebaute Frontend gegen ein echtes Backend mit
@@ -68,9 +82,17 @@ Rollen und Berechtigungen stehen in `backend/app/permissions.py`:
 
 | Rolle | Berechtigungen |
 | --- | --- |
-| Niederlassungsleiter | `*` |
-| HSE / Compliance | `compliance:*`, `incident:*`, `personnel:read`, `fleet:read`, `assessment:read`, `sales:read`, `agent:run`, `audit:read` |
+| Bereichsleiter | `*` |
+| Niederlassungsleiter | alle Bereichsrechte, aber **kein** `rule:write` und `branch:write` |
+| HSE / Compliance | `compliance:*`, `incident:*`, `personnel:read`, `fleet:read`, `assessment:read`, `sales:read`, `rule:read`, `branch:read`, `agent:run`, `audit:read` |
 | Betrachter | alle `:read` |
+
+Die Rolle entscheidet, **was** jemand darf; das Konto entscheidet ueber
+`user_branches` bzw. `users.all_branches`, **wo**. Der Niederlassungsleiter
+haelt jedes fachliche Recht, aber gruppenweite Regeln aendert er nicht - sie
+reichen in Niederlassungen, fuer die er nicht verantwortlich ist. Fuer die
+eigene Niederlassung setzt er stattdessen eine begruendete Ausnahme, die die
+Bereichsleitung sieht und widerrufen kann.
 
 Alle `/api/*`-Endpunkte erfordern eine Identitaet, Lesezugriffe eingeschlossen.
 Ausgenommen ist nur `/health` fuer den Container-Healthcheck.
@@ -104,8 +126,10 @@ aktualisiert. **Bestandsdaten bleiben dabei immer erhalten** - auch eine
 Datenbank aus der Zeit vor Einfuehrung der Migrationen wird uebernommen und
 hochmigriert, nicht neu aufgesetzt.
 
-Geseedet werden nur Remscheid sowie die drei Rollen und je ein Konto dazu;
-fachliche Daten werden in der App erfasst.
+Geseedet werden nur Remscheid sowie die vier Rollen und je ein Konto dazu;
+fachliche Daten werden in der App erfasst. Weitere Niederlassungen legt die
+Bereichsleitung selbst an - ihre Namen gehoeren der Organisation und nicht
+einer Seed-Datei.
 
 Neue Migration nach einer Modelaenderung:
 
@@ -199,13 +223,16 @@ Beide Jobs sind idempotent und schreiben ins Audit-Log.
 
 - Azure AD ist vorbereitet und getestet, aber nicht aktiv: im Frontend fehlt
   noch die MSAL-Abhaengigkeit. Siehe [`docs/azure-ad-setup.md`](docs/azure-ad-setup.md).
-- Mehrere Niederlassungen sind im Datenmodell vorgesehen, die Oberflaeche
-  arbeitet weiterhin mit der ersten.
+- Der Vertrieb ist aus der Oberflaeche entfernt. Tabellen und Endpunkte
+  (`/api/accounts`, `/api/opportunities`, `/api/service-contracts`) bestehen
+  unveraendert weiter, es geht also nichts verloren; im Cockpit erscheinen die
+  Vertriebskennzahlen nicht mehr.
 - Der Worker laeuft als Einzelinstanz ohne Sperren; parallele Instanzen sind
   nicht vorgesehen.
 
 ## Weitere Dokumentation
 
+- [`docs/niederlassungen.md`](docs/niederlassungen.md) - mehrere Standorte, Regeln, Ausnahmen
 - [`docs/architecture.md`](docs/architecture.md) - Aufbau und Datenfluss
 - [`docs/migrations.md`](docs/migrations.md) - Schemaaenderungen und Datenerhalt
 - [`docs/release.md`](docs/release.md) - Release, ghcr.io, Upgrade, Rollback

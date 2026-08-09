@@ -7,13 +7,51 @@ Versionierung nach [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Hinzugefuegt
 
-- **End-to-end-Tests** mit Playwright: 30 Faelle in zwei Viewports gegen das
+- **Mehrere Niederlassungen.** Dieselbe Anwendung verwaltet jetzt mehrere
+  Standorte, aus zwei Perspektiven: der Niederlassungsleitung und der
+  Bereichsleitung darueber. Beschrieben in
+  [`docs/niederlassungen.md`](docs/niederlassungen.md).
+  - Umschalter in der Kopfzeile, die gewaehlte Niederlassung steht in der URL
+    (`#/mitarbeiter/rs`); ohne Auswahl gilt "alle, die ich sehen darf"
+  - Sichtbarkeit haengt am Konto (`user_branches`, `users.all_branches`), nicht
+    an der Rolle. Jede Liste ist gefiltert, Einzelabfragen antworten mit 404
+    statt 403 - Aufenthaltstitel und Vorsorgetermine gehen eine fremde
+    Niederlassung nichts an
+  - **Portfolio** ueber alle Standorte mit denselben Kennzahlen je Zeile
+  - Neue Rolle **Bereichsleiter**; der Niederlassungsleiter behaelt jedes
+    fachliche Recht, aber nicht `rule:write` und `branch:write`
+- **Compliance-Vorgaben getrennt von den Eintraegen.** Eine Vorgabe beschreibt
+  die Pflicht, je Niederlassung entsteht daraus ein Eintrag mit eigenem Termin
+  und eigenen Nachweisen. Eine Vorgabe laesst sich in beide Richtungen
+  umstellen; beim Verkleinern des Geltungsbereichs werden die Eintraege der
+  uebrigen Standorte zu eigenstaendigen Vorgaben abgeloest statt geloescht.
+  Eine Vorschau zeigt vorher, was der Wechsel anrichtet.
+- **Ausnahmeregister.** Die Niederlassung darf eine Gruppenanforderung fuer
+  sich aussetzen - mit Pflichtbegruendung, sofort sichtbar fuer die
+  Bereichsleitung und mit 30 Tagen Vorlauf widerrufbar.
+- **Fahrzeuge wandern zwischen Niederlassungen**, leihweise oder dauerhaft.
+  Faellig ist ein Fahrzeug dort, wo es steht.
+- **Mitarbeiter mit mehreren Einsatzorten**: die Anforderungen beider
+  Standorte addieren sich, gezaehlt wird die Person nur in ihrer Heimat.
+- **End-to-end-Tests** mit Playwright: 70 Faelle in zwei Viewports gegen das
   gebaute Frontend und ein echtes Backend, inklusive der Laufzeitkonfiguration
   ueber `/config.js`. Ablauf und Erweiterung in [`docs/tests.md`](docs/tests.md).
   Als eigener CI-Job.
 
+### Entfernt
+
+- **Vertrieb** ist aus der Oberflaeche verschwunden, ebenso die
+  Vertriebskennzahlen im Cockpit. Tabellen und Endpunkte (`/api/accounts`,
+  `/api/opportunities`, `/api/service-contracts`) bestehen unveraendert weiter -
+  erfasste Daten gehen nicht verloren.
+
 ### Behoben
 
+- **Ein Wechsel der Niederlassung konnte die alte Liste zeigen.** Die noch
+  laufende, ungefilterte Antwort ueberholte die gefilterte; die Tabelle zeigte
+  dann Standorte, die der Umschalter nicht ausgewaehlt hatte.
+- **Massnahmen waren nicht nach Niederlassung gefiltert** und `/api/bootstrap`
+  lieferte alle Niederlassungen unabhaengig von der Zustaendigkeit.
 - **Qualifikation aus einer Anforderung erfassen war wirkungslos.** Das
   vorbelegte Auswahlfeld ist `disabled` und wurde deshalb nicht mitgesendet;
   der Dialog verlangte stattdessen eine Auswahl, die er selbst gesperrt hatte.

@@ -52,7 +52,7 @@ test.describe("Shell, Routing und Berechtigungen", () => {
     await gotoAs(page, "compliance", HSE);
     // Alle drei Presets halten saemtliche :read-Rechte, die Navigation ist
     // deshalb vollstaendig; unterschieden wird beim Schreiben.
-    for (const area of ["Cockpit", "Mitarbeiter", "Fahrzeuge", "Compliance", "Vertrieb"]) {
+    for (const area of ["Cockpit", "Mitarbeiter", "Fahrzeuge", "Compliance", "Vorgaben"]) {
       await expect(nav(page).getByRole("button", { name: area })).toBeVisible();
     }
     await expect(createButton(page, "Thema")).toBeVisible();
@@ -98,8 +98,15 @@ test.describe("Shell, Routing und Berechtigungen", () => {
     await closeDialog(page);
   });
 
+  test("Vertrieb ist aus der Anwendung verschwunden", async ({ page }) => {
+    await gotoAs(page, "cockpit");
+    await expect(nav(page).getByRole("button", { name: "Vertrieb" })).toHaveCount(0);
+    // Die Kennzahl dahinter ebenfalls: sie kam aus dem Vertrieb.
+    await expect(main(page)).not.toContainText("Pipeline");
+  });
+
   test("die Seite scrollt nie horizontal", async ({ page }) => {
-    for (const route of ["cockpit", "mitarbeiter", "qualifikationen", "fahrzeuge", "compliance", "stammdaten"]) {
+    for (const route of ["cockpit", "mitarbeiter", "qualifikationen", "fahrzeuge", "compliance", "vorgaben", "stammdaten"]) {
       await gotoAs(page, route);
       const overflow = await page.evaluate(
         () => document.documentElement.scrollWidth - document.documentElement.clientWidth

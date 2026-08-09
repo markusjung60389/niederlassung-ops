@@ -577,3 +577,19 @@ def test_the_second_branch_survives_a_restart_of_the_seed(client):
 
         seed_base_data(db)
         assert db.get(models.Branch, other) is not None
+
+
+def test_promoting_a_local_rule_does_not_move_the_original_record(client):
+    """The record it started with stays in its branch, and only there."""
+    other = make_branch(client)
+    rule = make_rule(client, branch_id=BRANCH, title="Bleibt in Remscheid", actor=MANAGER)
+    client.post(
+        f"/api/compliance-rules/{rule['id']}/scope",
+        headers=auth(AREA_MANAGER),
+        json={"branch_id": None, "first_due_date": (date.today() + timedelta(days=90)).isoformat()},
+    )
+
+    here = client.get(f"/api/compliance-records?branch_id={BRANCH}", headers=auth(AREA_MANAGER)).json()
+    there = client.get(f"/api/compliance-records?branch_id={other}", headers=auth(AREA_MANAGER)).json()
+    assert [item["title"] for item in here].count("Bleibt in Remscheid") == 1
+    assert [item["title"] for item in there].count("Bleibt in Remscheid") == 1

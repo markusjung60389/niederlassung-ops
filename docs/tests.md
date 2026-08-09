@@ -47,7 +47,11 @@ die ganze Suite rot faerben. Die Helfer in `e2e/support/api.ts` legen die
 Ausgangslage an, geklickt wird nur, was gerade geprueft wird.
 
 **Ein Worker.** Die Suite teilt sich eine Datenbank; serieller Lauf haelt den
-Zustand vorhersagbar. Der komplette Durchlauf dauert unter zwei Minuten.
+Zustand vorhersagbar. Der komplette Durchlauf dauert etwa zwei Minuten.
+
+**Zwei Niederlassungen ab dem ersten Spec.** `branches.spec.ts` laeuft zuerst
+und legt einen zweiten Standort an. Alle folgenden Faelle arbeiten damit in der
+Konfiguration, in der das Werkzeug tatsaechlich betrieben wird.
 
 **Zwei Viewports.** `chromium` mit 1440px und `tablet` mit 1024px - der
 Styleguide nennt iPad quer als gleichwertiges Ziel, nicht als reduziertes.
@@ -71,6 +75,7 @@ E2E_PYTHON=../backend/.venv/bin/python npm run e2e
 
 | Datei | Inhalt |
 | --- | --- |
+| `branches.spec.ts` | Umschalter und Niederlassung in der URL, Abschottung zwischen Standorten, Portfolio, Ausnahme setzen und widerrufen, Fahrzeug verlegen, Einsatzort, Vorgabe von oertlich auf gruppenweit |
 | `navigation.spec.ts` | Hash-Routing, Deep Link, Zurueck, Neuladen, unbekannte Route, Rollen, Dialogverhalten, kein horizontaler Scroll |
 | `employees.spec.ts` | Tabelle, Anlegen, Bearbeiten, Qualifikation erfassen, Funktionswechsel, Ausscheiden, Loeschen samt Kindschutz |
 | `qualifications.spec.ts` | Matrixzustaende und -zeichen, Filter, Katalogpflege, Anforderung umstellen |
@@ -92,6 +97,13 @@ Beim ersten Durchlauf gegen v1.1.0:
 3. **Die dokumentierten HSE-Rechte stimmten nicht** mit `ROLE_PRESETS`
    ueberein (`sales:read` fehlte in README und Azure-Anleitung).
 
+Beim Ausbau auf mehrere Niederlassungen:
+
+4. **Der Wechsel der Niederlassung konnte die alte Liste stehen lassen.** Die
+   noch laufende, ungefilterte Anfrage ueberholte die gefilterte und
+   ueberschrieb sie. Jede Ladung ist jetzt nummeriert; eine veraltete Antwort
+   wird verworfen.
+
 ### Beim Erweitern
 
 - Testdaten mit `unique()` benennen, damit Faelle sich nie gegenseitig sehen.
@@ -100,3 +112,7 @@ Beim ersten Durchlauf gegen v1.1.0:
 - `dialog(page)` liefert den obersten Dialog - Detail und Erfassen sind
   gleichzeitig offen.
 - Keine festen Wartezeiten. Alle Helfer warten auf Zustaende.
+- `gotoAs` geht ueber `about:blank`, wenn schon eine Seite offen ist: sonst
+  aendert sich nur der Hash, das Init-Skript mit der Identitaet laeuft nicht,
+  und die laufende Anwendung leitet vorher noch von einer Ansicht weg, die die
+  alte Identitaet gar nicht oeffnen darf.
