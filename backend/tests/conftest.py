@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from app.database import Base, engine  # noqa: E402
 from app.main import app  # noqa: E402
 
+AREA_MANAGER = "user-area-manager"
 MANAGER = "user-branch-manager"
 HSE = "user-hse"
 VIEWER = "user-viewer"
@@ -40,6 +41,9 @@ def clean_tables(client):
         "branches",
         "roles",
         "users",
+        # Which branches an account may see is seeded alongside the accounts;
+        # wiping it would leave every test without access to its own branch.
+        "user_branches",
         "alembic_version",
         "qualification_types",
         "job_roles",

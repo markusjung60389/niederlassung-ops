@@ -29,9 +29,29 @@ ActionStatus = Literal["open", "in_progress", "blocked", "done", "cancelled"]
 class BranchRead(BaseModel):
     id: str
     name: str
+    code: str | None = None
     location: str | None = None
+    active: bool = True
+    manager_user_id: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class BranchCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    code: str | None = Field(default=None, max_length=10)
+    location: str | None = None
+    manager_user_id: str | None = None
+    notes: str | None = None
+
+
+class BranchUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=120)
+    code: str | None = Field(default=None, max_length=10)
+    location: str | None = None
+    active: bool | None = None
+    manager_user_id: str | None = None
+    notes: str | None = None
 
 
 class UserRead(BaseModel):
@@ -259,6 +279,8 @@ class IncidentRead(IncidentCreate):
 class QualificationTypeCreate(BaseModel):
     code: str = Field(min_length=2, max_length=60)
     name: str = Field(min_length=2, max_length=180)
+    # None keeps the entry group-wide, which is the default on purpose.
+    branch_id: str | None = None
     category: str = Field(default="qualification", max_length=60)
     validity_months: int | None = Field(default=None, ge=1, le=600)
     reminder_days: int = Field(default=60, ge=1, le=365)
@@ -311,12 +333,14 @@ class JobRoleRequirementRead(BaseModel):
 
 class JobRoleCreate(BaseModel):
     name: str = Field(min_length=2, max_length=120)
+    branch_id: str | None = None
     description: str | None = None
     active: bool = True
 
 
 class JobRoleUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=2, max_length=120)
+    branch_id: str | None = None
     description: str | None = None
     active: bool | None = None
 
@@ -327,6 +351,130 @@ class JobRoleRead(JobRoleCreate):
     employee_count: int = 0
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class RequirementOverrideCreate(BaseModel):
+    """A branch deviating from a group requirement.
+
+    The reason is mandatory: an exception nobody can explain during an
+    inspection is worse than an open gap.
+    """
+
+    branch_id: str
+    requirement_id: str
+    mode: Literal["excluded", "mandatory", "optional"]
+    reason: str = Field(min_length=5)
+    valid_until: date | None = None
+
+
+class RequirementOverrideRevoke(BaseModel):
+    reason: str = Field(min_length=5)
+    # A revocation that bites immediately turns a branch red overnight, so it
+    # names the day it applies from.
+    effective_from: date | None = None
+
+
+class RequirementOverrideRead(BaseModel):
+    id: str
+    branch_id: str
+    branch_name: str
+    requirement_id: str
+    job_role_id: str
+    job_role_name: str
+    qualification_name: str
+    mode: str
+    reason: str
+    valid_until: date | None = None
+    created_by: str | None = None
+    created_at: datetime
+    acknowledged_at: datetime | None = None
+    revoked_at: datetime | None = None
+    revoked_reason: str | None = None
+    revoked_effective_from: date | None = None
+    active: bool
+
+
+class ComplianceRuleCreate(BaseModel):
+    title: str = Field(min_length=3, max_length=200)
+    category: str = Field(max_length=80)
+    control_type: str = Field(max_length=40)
+    recurrence: str = Field(default="yearly", max_length=40)
+    legal_basis: str = Field(min_length=2, max_length=200)
+    priority: str = Field(default="medium", max_length=40)
+    risk_if_missing: str | None = None
+    # None means group-wide.
+    branch_id: str | None = None
+    valid_from: date | None = None
+    # Due date the branch instances start with.
+    first_due_date: date
+
+
+class ComplianceRuleUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=3, max_length=200)
+    category: str | None = Field(default=None, max_length=80)
+    control_type: str | None = Field(default=None, max_length=40)
+    recurrence: str | None = Field(default=None, max_length=40)
+    legal_basis: str | None = Field(default=None, min_length=2, max_length=200)
+    priority: str | None = Field(default=None, max_length=40)
+    risk_if_missing: str | None = None
+    valid_from: date | None = None
+    active: bool | None = None
+
+
+class ComplianceRuleScopeChange(BaseModel):
+    """Moves a rule between group-wide and branch-specific.
+
+    `branch_id` None promotes it to group-wide; a branch id restricts it to
+    that branch. `first_due_date` applies to the instances that newly come
+    into being.
+    """
+
+    branch_id: str | None = None
+    first_due_date: date | None = None
+    # Instances in branches that lose the rule become rules of their own
+    # instead of disappearing with their evidence.
+    detach_dropped: bool = True
+
+
+class ComplianceRuleRead(ComplianceRuleCreate):
+    id: str
+    first_due_date: date | None = None
+    active: bool = True
+    branch_name: str | None = None
+    record_count: int = 0
+    branch_ids: list[str] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ScopeChangePreview(BaseModel):
+    """What a scope change would do, before it does it."""
+
+    creates_in: list[str] = []
+    detaches_in: list[str] = []
+    unchanged_in: list[str] = []
+    newly_blocked_employees: int = 0
+
+
+class BranchPortfolioRow(BaseModel):
+    branch_id: str
+    branch_name: str
+    code: str | None = None
+    headcount: int
+    blocked: int
+    limited: int
+    overdue_compliance: int
+    due_vehicles: int
+    first_aiders_trained: int
+    first_aiders_required: int
+    open_exceptions: int
+    new_exceptions: int
+    state: str
+
+
+class EmployeeBranchCreate(BaseModel):
+    branch_id: str
+    note: str | None = None
 
 
 class EmployeeQualificationCreate(BaseModel):
@@ -366,6 +514,8 @@ class EmployeeQualificationRead(EmployeeQualificationCreate):
 class RequirementStateRead(BaseModel):
     """One line of the qualification matrix: what the function needs vs. what is on file."""
 
+    override_mode: str | None = None
+    override_reason: str | None = None
     qualification_type_id: str
     code: str
     name: str
@@ -399,6 +549,9 @@ class EmployeeRead(EmployeeCreate):
     profile: EmployeeProfileRead | None = None
     # Derived, never stored: deployability and the next date to act on.
     requirements: list[RequirementStateRead] = []
+    # Home branch plus deployments, and deployability in each of them.
+    branch_ids: list[str] = []
+    readiness_by_branch: dict[str, str] = {}
     readiness: str = "ready"
     due_state: str = "green"
     open_requirements: int = 0
@@ -462,6 +615,8 @@ class VehicleCreate(BaseModel):
     fuel_card_number: str | None = None
     equipment: list[str] = Field(default_factory=list)
     notes: str | None = None
+    # Where the vehicle currently stands, when that is not its home branch.
+    current_branch_id: str | None = None
 
 
 class VehicleRead(VehicleCreate):
@@ -470,6 +625,8 @@ class VehicleRead(VehicleCreate):
     updated_at: datetime
     # Derived, never stored.
     assigned_employee_name: str | None = None
+    current_branch_name: str | None = None
+    location_branch_id: str | None = None
     due_state: str = "green"
     next_due_title: str | None = None
     next_due_date: date | None = None
@@ -655,6 +812,7 @@ class VehicleUpdate(BaseModel):
     fuel_card_number: str | None = None
     equipment: list[str] | None = None
     notes: str | None = None
+    current_branch_id: str | None = None
 
 
 class IncidentUpdate(BaseModel):

@@ -27,7 +27,11 @@ class Branch(Base, TimestampMixin):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
     name: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
+    # Short marker used in tight table cells and in the branch switcher.
+    code: Mapped[str | None] = mapped_column(String(10), unique=True)
     location: Mapped[str | None] = mapped_column(String(200))
+    active: Mapped[bool] = mapped_column(default=True, nullable=False)
+    manager_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
     notes: Mapped[str | None] = mapped_column(Text)
 
 
@@ -48,8 +52,27 @@ class User(Base, TimestampMixin):
     # Microsoft Entra ID object id ("oid" claim). Empty until the account signs in via Azure AD.
     external_id: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
     is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
+    # Set for the area manager: reads and writes reach every branch without an
+    # entry in user_branches having to be maintained per branch.
+    all_branches: Mapped[bool] = mapped_column(default=False, nullable=False)
     role_id: Mapped[str | None] = mapped_column(ForeignKey("roles.id"))
     role: Mapped[Role | None] = relationship(lazy="joined")
+    branch_links: Mapped[list["UserBranch"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan", lazy="selectin"
+    )
+
+
+class UserBranch(Base, TimestampMixin):
+    """Which branches an account may see and work in."""
+
+    __tablename__ = "user_branches"
+    __table_args__ = (UniqueConstraint("user_id", "branch_id", name="uq_user_branches_user_branch"),)
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    branch_id: Mapped[str] = mapped_column(ForeignKey("branches.id"), nullable=False, index=True)
+    user: Mapped[User] = relationship(back_populates="branch_links")
+    branch: Mapped[Branch] = relationship(lazy="joined")
 
 
 class QualificationType(Base, TimestampMixin):
@@ -65,6 +88,10 @@ class QualificationType(Base, TimestampMixin):
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
     code: Mapped[str] = mapped_column(String(60), nullable=False, unique=True)
     name: Mapped[str] = mapped_column(String(180), nullable=False)
+    # NULL means the entry applies group-wide. A branch id restricts it to that
+    # branch, which is the exception rather than the rule: figures are only
+    # comparable across branches while the definitions are shared.
+    branch_id: Mapped[str | None] = mapped_column(ForeignKey("branches.id"), index=True)
     category: Mapped[str] = mapped_column(String(60), default="qualification", nullable=False)
     # None means the qualification does not expire (driving licence classes).
     validity_months: Mapped[int | None] = mapped_column(Integer)
@@ -87,6 +114,8 @@ class JobRole(Base, TimestampMixin):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
     name: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
+    # NULL means group-wide, see QualificationType.branch_id.
+    branch_id: Mapped[str | None] = mapped_column(ForeignKey("branches.id"), index=True)
     description: Mapped[str | None] = mapped_column(Text)
     active: Mapped[bool] = mapped_column(default=True, nullable=False)
     requirements: Mapped[list["JobRoleRequirement"]] = relationship(
@@ -115,6 +144,42 @@ class JobRoleRequirement(Base, TimestampMixin):
     qualification_type: Mapped[QualificationType] = relationship(lazy="joined")
 
 
+class RequirementOverride(Base, TimestampMixin):
+    """A branch deviating from a group requirement.
+
+    Deliberately a row of its own rather than the silent absence of one: the
+    reason, who set it and until when are exactly what an inspection asks
+    about, and the area manager can only revoke what he can see.
+    """
+
+    __tablename__ = "requirement_overrides"
+    __table_args__ = (
+        UniqueConstraint("branch_id", "requirement_id", name="uq_requirement_overrides_branch_req"),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    branch_id: Mapped[str] = mapped_column(ForeignKey("branches.id"), nullable=False, index=True)
+    requirement_id: Mapped[str] = mapped_column(
+        ForeignKey("job_role_requirements.id"), nullable=False, index=True
+    )
+    # excluded: does not apply here. mandatory/optional: applies differently.
+    mode: Mapped[str] = mapped_column(String(20), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    valid_until: Mapped[date | None] = mapped_column(Date)
+    created_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    # Seen by the area manager; drives the "new since" marker.
+    acknowledged_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # A revocation that bites immediately would turn a branch red overnight, so
+    # it names the date from which it applies.
+    revoked_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_reason: Mapped[str | None] = mapped_column(Text)
+    revoked_effective_from: Mapped[date | None] = mapped_column(Date)
+    requirement: Mapped[JobRoleRequirement] = relationship(lazy="joined")
+    branch: Mapped[Branch] = relationship(lazy="joined")
+
+
 class Employee(Base, TimestampMixin):
     __tablename__ = "employees"
 
@@ -139,6 +204,39 @@ class Employee(Base, TimestampMixin):
     job_role: Mapped[JobRole | None] = relationship(lazy="joined")
     qualifications: Mapped[list["EmployeeQualification"]] = relationship(back_populates="employee")
     profile: Mapped["EmployeeProfile | None"] = relationship(back_populates="employee", uselist=False)
+    branch_links: Mapped[list["EmployeeBranch"]] = relationship(
+        back_populates="employee", cascade="all, delete-orphan"
+    )
+
+    @property
+    def assigned_branch_ids(self) -> set[str]:
+        """Home branch plus every branch the person is deployed to.
+
+        The home branch counts implicitly, so a record that predates the
+        deployment table behaves exactly as before.
+        """
+        return {self.branch_id} | {link.branch_id for link in self.branch_links}
+
+
+class EmployeeBranch(Base, TimestampMixin):
+    """A branch the employee is deployed to besides their home branch.
+
+    Requirements add up across these: someone working in two branches has to
+    satisfy both rule sets, otherwise an exception granted in one would become
+    a loophole for working in the other.
+    """
+
+    __tablename__ = "employee_branches"
+    __table_args__ = (
+        UniqueConstraint("employee_id", "branch_id", name="uq_employee_branches_employee_branch"),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    employee_id: Mapped[str] = mapped_column(ForeignKey("employees.id"), nullable=False, index=True)
+    branch_id: Mapped[str] = mapped_column(ForeignKey("branches.id"), nullable=False, index=True)
+    note: Mapped[str | None] = mapped_column(Text)
+    employee: Mapped["Employee"] = relationship(back_populates="branch_links")
+    branch: Mapped[Branch] = relationship(lazy="joined")
 
 
 class EmployeeQualification(Base, TimestampMixin):
@@ -196,7 +294,11 @@ class Vehicle(Base, TimestampMixin):
     __tablename__ = "vehicles"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    # Home branch: who owns the vehicle and pays for its inspections.
     branch_id: Mapped[str] = mapped_column(ForeignKey("branches.id"), nullable=False, index=True)
+    # Where it currently stands, when that is not home. A vehicle is in one
+    # place at a time, so this is a move rather than a second assignment.
+    current_branch_id: Mapped[str | None] = mapped_column(ForeignKey("branches.id"), index=True)
     license_plate: Mapped[str] = mapped_column(String(40), nullable=False)
     brand: Mapped[str | None] = mapped_column(String(80))
     model: Mapped[str | None] = mapped_column(String(120))
@@ -216,8 +318,14 @@ class Vehicle(Base, TimestampMixin):
     fuel_card_number: Mapped[str | None] = mapped_column(String(120))
     equipment: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text)
-    branch: Mapped[Branch] = relationship()
+    branch: Mapped[Branch] = relationship(foreign_keys=[branch_id])
+    current_branch: Mapped[Branch | None] = relationship(foreign_keys=[current_branch_id], lazy="joined")
     assigned_employee: Mapped[Employee | None] = relationship()
+
+    @property
+    def location_branch_id(self) -> str:
+        """The branch that has to act on this vehicle's dates today."""
+        return self.current_branch_id or self.branch_id
 
 class EmployeeReview(Base, TimestampMixin):
     __tablename__ = "employee_reviews"
@@ -300,6 +408,35 @@ class ServiceEvent(Base, TimestampMixin):
     repeat_issue: Mapped[bool] = mapped_column(default=False, nullable=False)
 
 
+class ComplianceRule(Base, TimestampMixin):
+    """The obligation itself, separate from the branch's work on it.
+
+    "We instruct annually" holds for whoever it is declared for; the evidence
+    for it belongs to one branch. Keeping both in one row worked while there
+    was one branch and stops working the moment a rule is meant to apply to
+    all of them.
+    """
+
+    __tablename__ = "compliance_rules"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    category: Mapped[str] = mapped_column(String(80), nullable=False)
+    # NULL means group-wide; a branch id restricts the rule to that branch.
+    branch_id: Mapped[str | None] = mapped_column(ForeignKey("branches.id"), index=True)
+    control_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    recurrence: Mapped[str] = mapped_column(String(40), default="yearly", nullable=False)
+    legal_basis: Mapped[str] = mapped_column(String(200), nullable=False)
+    priority: Mapped[str] = mapped_column(String(40), default="medium", nullable=False)
+    risk_if_missing: Mapped[str | None] = mapped_column(Text)
+    # Switching a rule on must not make four branches overdue overnight.
+    valid_from: Mapped[date | None] = mapped_column(Date)
+    active: Mapped[bool] = mapped_column(default=True, nullable=False)
+    created_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    branch: Mapped[Branch | None] = relationship(lazy="joined")
+    records: Mapped[list["ComplianceRecord"]] = relationship(back_populates="rule")
+
+
 class ComplianceRecord(Base, TimestampMixin):
     __tablename__ = "compliance_records"
 
@@ -307,6 +444,9 @@ class ComplianceRecord(Base, TimestampMixin):
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     category: Mapped[str] = mapped_column(String(80), nullable=False)
     branch_id: Mapped[str] = mapped_column(ForeignKey("branches.id"), nullable=False, index=True)
+    # The rule this is the branch's instance of. Nullable so a record can exist
+    # on its own, which is what every record looked like before rules existed.
+    rule_id: Mapped[str | None] = mapped_column(ForeignKey("compliance_rules.id"), index=True)
     scope_type: Mapped[str] = mapped_column(String(40), default="branch", nullable=False)
     scope_id: Mapped[str | None] = mapped_column(String)
     status: Mapped[str] = mapped_column(String(40), default="open", nullable=False, index=True)
@@ -327,6 +467,7 @@ class ComplianceRecord(Base, TimestampMixin):
     tags: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text)
     branch: Mapped[Branch] = relationship()
+    rule: Mapped[ComplianceRule | None] = relationship(back_populates="records", lazy="joined")
     owner: Mapped[User] = relationship(foreign_keys=[owner_user_id])
     evidence: Mapped[list["ComplianceEvidence"]] = relationship(back_populates="record")
     actions: Mapped[list["ComplianceAction"]] = relationship(back_populates="record")

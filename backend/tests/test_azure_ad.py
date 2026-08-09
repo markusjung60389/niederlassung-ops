@@ -149,7 +149,10 @@ def test_user_is_provisioned_and_role_is_mapped(client, azure_mode):
     assert body["source"] == "azure-ad"
     assert body["display_name"] == "Entra Testnutzer"
     assert body["role_name"] == "Niederlassungsleiter"
-    assert body["permissions"] == ["*"]
+    # The branch manager holds every area permission but not rule:write - a
+    # group-wide rule reaches branches they are not responsible for.
+    assert "compliance:write" in body["permissions"]
+    assert "rule:write" not in body["permissions"]
 
     with SessionLocal() as db:
         user = db.query(models.User).filter_by(external_id="11111111-2222-3333-4444-555555555555").one()

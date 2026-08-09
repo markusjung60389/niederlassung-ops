@@ -5,11 +5,19 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from .. import models, permissions, schemas
+from .. import models, permissions, schemas, serializers
 from ..auth import CurrentPrincipal, Principal, requires
 from ..database import get_db
+from ..deps import branch_filter
 from ..domain import DUE_SOON_DAYS, is_overdue, needs_attention, today_local, within_days
-from ..readiness import BLOCKED, LIMITED, first_aider_target, readiness_of, requirement_states
+from ..readiness import (
+    BLOCKED,
+    LIMITED,
+    first_aider_target,
+    load_overrides,
+    readiness_of,
+    requirement_states,
+)
 from ..serializers import (
     action_read,
     build_reminders,
@@ -25,33 +33,72 @@ router = APIRouter(tags=["cockpit"])
 @router.get("/api/cockpit", response_model=schemas.CockpitResponse)
 def cockpit(
     principal: Annotated[Principal, Depends(requires(permissions.COMPLIANCE_READ))],
+    branch_id: str | None = None,
     db: Session = Depends(get_db),
 ) -> schemas.CockpitResponse:
-    records = db.scalars(
+    """The selected branch, not everything at once.
+
+    Without the filter a manager of one branch read the overdue obligations of
+    every other in their own tiles.
+    """
+    scope = principal.scope(branch_id)
+    record_query = branch_filter(
         select(models.ComplianceRecord).options(
             selectinload(models.ComplianceRecord.evidence), selectinload(models.ComplianceRecord.actions)
-        )
+        ),
+        models.ComplianceRecord.branch_id,
+        principal,
+        branch_id,
+    )
+    records = db.scalars(record_query).all()
+    record_ids = {record.id for record in records}
+    actions = [
+        action
+        for action in db.scalars(select(models.ComplianceAction)).all()
+        if action.compliance_record_id in record_ids
+    ]
+    incidents = db.scalars(
+        branch_filter(
+            select(models.Incident).order_by(models.Incident.occurred_at.desc()),
+            models.Incident.branch_id,
+            principal,
+            branch_id,
+        ).limit(5)
     ).all()
-    actions = db.scalars(select(models.ComplianceAction)).all()
-    incidents = db.scalars(select(models.Incident).order_by(models.Incident.occurred_at.desc()).limit(5)).all()
 
     may_read_personnel = principal.has(permissions.PERSONNEL_READ)
-    reminders = reminders_for(db, principal)
-    qualifications = db.scalars(select(models.EmployeeQualification)).all() if may_read_personnel else []
+    reminders = reminders_for(db, principal, branch_id)
+    branch_employees = (
+        db.scalars(serializers.employee_query(scope)).all() if may_read_personnel else []
+    )
+    employee_ids = {item.id for item in branch_employees}
+    qualifications = (
+        [
+            item
+            for item in db.scalars(select(models.EmployeeQualification)).all()
+            if item.employee_id in employee_ids
+        ]
+        if may_read_personnel
+        else []
+    )
 
     # Deployability: how many people cannot be assigned today, and whether the
     # branch still meets the first-aider minimum.
     blocked = limited = 0
     first_aiders: schemas.FirstAiderStatus | None = None
     if may_read_personnel:
-        employees = db.scalars(employee_query()).all()
+        overrides = load_overrides(db)
+        employees = branch_employees
         for employee in employees:
-            states = requirement_states(employee)
+            states = requirement_states(employee, branch_id or employee.branch_id, overrides)
             level = readiness_of(states)
             blocked += level == BLOCKED
             limited += level == LIMITED
-        headcount = len(employees)
-        trained = sum(1 for employee in employees if employee.first_aider)
+        # The quota counts the home branch: a person deployed in three
+        # branches must not be counted three times.
+        home = [item for item in employees if branch_id is None or item.branch_id == branch_id]
+        headcount = len(home)
+        trained = sum(1 for employee in home if employee.first_aider)
         required = first_aider_target(headcount)
         first_aiders = schemas.FirstAiderStatus(
             headcount=headcount,
@@ -183,7 +230,7 @@ def hermes_branch_context(branch_id: str, db: Session = Depends(get_db)) -> sche
         .options(selectinload(models.ComplianceRecord.evidence), selectinload(models.ComplianceRecord.actions))
         .order_by(models.ComplianceRecord.due_date.asc())
     ).all()
-    employees = db.scalars(employee_query(branch_id)).all()
+    employees = db.scalars(serializers.employee_query([branch_id])).all()
     open_actions = db.scalars(
         select(models.ComplianceAction)
         .join(models.ComplianceRecord)

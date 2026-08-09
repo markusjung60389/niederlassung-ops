@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from . import catalog, models, permissions
 
 ROLE_IDS = {
+    permissions.ROLE_AREA_MANAGER: "role-area-manager",
     permissions.ROLE_BRANCH_MANAGER: "role-branch-manager",
     permissions.ROLE_HSE: "role-hse",
     permissions.ROLE_VIEWER: "role-viewer",
@@ -98,28 +99,74 @@ def link_employees_to_job_roles(db: Session) -> None:
     db.flush()
 
 
+def link_users_to_branches(db: Session) -> None:
+    """Gives an account without any branch its home branch.
+
+    An account with no link and without `all_branches` sees nothing at all, so
+    an installation that predates the branch scoping would lock its users out
+    on the first start after the upgrade.
+    """
+    branch = db.scalar(select(models.Branch).order_by(models.Branch.created_at.asc()))
+    if branch is None:
+        return
+    linked = set(db.scalars(select(models.UserBranch.user_id)).all())
+    for user in db.scalars(select(models.User)).all():
+        if user.all_branches or user.id in linked:
+            continue
+        db.add(models.UserBranch(user_id=user.id, branch_id=branch.id))
+    db.flush()
+
+
 def seed_base_data(db: Session) -> None:
     roles = seed_roles(db)
     seed_qualification_types(db)
     seed_job_roles(db)
 
     if db.scalar(select(models.Branch).limit(1)) is None:
-        db.add(models.Branch(id="branch-remscheid", name="Remscheid", location="Remscheid"))
+        db.add(
+            models.Branch(id="branch-remscheid", name="Remscheid", location="Remscheid", code="RS")
+        )
 
+    # Further branches are not seeded: their names, codes and managers are the
+    # organisation's, not this file's. The area manager creates them under
+    # Niederlassungen, and every group-wide rule reaches them from that moment.
     accounts = [
+        (
+            "user-area-manager",
+            "Bereichsleitung",
+            "bereichsleitung@example.local",
+            permissions.ROLE_AREA_MANAGER,
+            True,
+        ),
         (
             "user-branch-manager",
             "Niederlassungsleitung Remscheid",
             "leitung.remscheid@example.local",
             permissions.ROLE_BRANCH_MANAGER,
+            False,
         ),
-        ("user-hse", "HSE Verantwortliche", "hse.remscheid@example.local", permissions.ROLE_HSE),
-        ("user-viewer", "Betrachter Remscheid", "betrachter.remscheid@example.local", permissions.ROLE_VIEWER),
+        ("user-hse", "HSE Verantwortliche", "hse.remscheid@example.local", permissions.ROLE_HSE, False),
+        (
+            "user-viewer",
+            "Betrachter Remscheid",
+            "betrachter.remscheid@example.local",
+            permissions.ROLE_VIEWER,
+            False,
+        ),
     ]
-    for user_id, display_name, email, role_name in accounts:
+    for user_id, display_name, email, role_name, all_branches in accounts:
         if db.get(models.User, user_id) is None:
-            db.add(models.User(id=user_id, display_name=display_name, email=email, role=roles[role_name]))
+            db.add(
+                models.User(
+                    id=user_id,
+                    display_name=display_name,
+                    email=email,
+                    role=roles[role_name],
+                    all_branches=all_branches,
+                )
+            )
 
     db.flush()
+    link_users_to_branches(db)
     link_employees_to_job_roles(db)
     db.commit()

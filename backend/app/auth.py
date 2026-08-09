@@ -51,9 +51,35 @@ class Principal:
     permissions: frozenset[str]
     source: str
     role_name: str | None = None
+    # Which branches this caller may see and work in. `all_branches` is the
+    # area manager: no per-branch row has to be maintained for them, and a
+    # branch added later is included without anyone remembering to.
+    branch_ids: frozenset[str] = frozenset()
+    all_branches: bool = False
 
     def has(self, permission: str) -> bool:
         return permissions.grants(self.permissions, permission)
+
+    def may_see(self, branch_id: str | None) -> bool:
+        """True when the caller may read data of that branch.
+
+        `None` means the row is not tied to a branch - a group-wide rule, for
+        instance - and is readable by anyone who may read the area at all.
+        """
+        return branch_id is None or self.all_branches or branch_id in self.branch_ids
+
+    def scope(self, branch_id: str | None = None) -> list[str] | None:
+        """The branch ids a query should be limited to.
+
+        `None` means no restriction, which only ever happens for the area
+        manager without a selected branch. A requested branch outside the
+        caller's scope yields an empty list rather than a silent widening.
+        """
+        if branch_id is not None:
+            return [branch_id] if self.may_see(branch_id) else []
+        if self.all_branches:
+            return None
+        return sorted(self.branch_ids)
 
 
 def _unauthorized(detail: str) -> HTTPException:
@@ -230,6 +256,8 @@ def _principal_from_user(user: models.User, source: str) -> Principal:
         permissions=frozenset(role.permissions if role and role.permissions else ()),
         source=source,
         role_name=role.name if role else None,
+        branch_ids=frozenset(link.branch_id for link in user.branch_links),
+        all_branches=bool(user.all_branches),
     )
 
 

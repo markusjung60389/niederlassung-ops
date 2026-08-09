@@ -20,6 +20,13 @@ INCIDENT_READ = "incident:read"
 INCIDENT_WRITE = "incident:write"
 AGENT_RUN = "agent:run"
 AUDIT_READ = "audit:read"
+# Group-wide rules: the catalogue, the functions and the compliance rules.
+# A branch manager works inside them and may set an exception for their own
+# branch; changing the rule itself is the area manager's.
+RULE_READ = "rule:read"
+RULE_WRITE = "rule:write"
+BRANCH_READ = "branch:read"
+BRANCH_WRITE = "branch:write"
 
 ALL_PERMISSIONS = (
     COMPLIANCE_READ,
@@ -36,17 +43,48 @@ ALL_PERMISSIONS = (
     INCIDENT_WRITE,
     AGENT_RUN,
     AUDIT_READ,
+    RULE_READ,
+    RULE_WRITE,
+    BRANCH_READ,
+    BRANCH_WRITE,
 )
 
 READ_PERMISSIONS = tuple(item for item in ALL_PERMISSIONS if item.endswith(":read"))
 
+ROLE_AREA_MANAGER = "Bereichsleiter"
 ROLE_BRANCH_MANAGER = "Niederlassungsleiter"
 ROLE_HSE = "HSE / Compliance"
 ROLE_VIEWER = "Betrachter"
 
-# name -> permissions. Applied on seed; existing rows are not overwritten.
+# name -> permissions. Applied on seed and kept in sync there, so a new
+# permission reaches existing installations on restart.
+#
+# What a role may do is only half the answer: which branches it reaches is the
+# other half and lives on the account (`users.all_branches`, `user_branches`).
+# The branch manager holds every area permission but not RULE_WRITE - a
+# group-wide rule reaches branches they are not responsible for. Setting an
+# exception for their own branch is theirs and needs no approval; it is shown
+# to the area manager, who can revoke it.
 ROLE_PRESETS: dict[str, list[str]] = {
-    ROLE_BRANCH_MANAGER: [WILDCARD],
+    ROLE_AREA_MANAGER: [WILDCARD],
+    ROLE_BRANCH_MANAGER: [
+        COMPLIANCE_READ,
+        COMPLIANCE_WRITE,
+        PERSONNEL_READ,
+        PERSONNEL_WRITE,
+        FLEET_READ,
+        FLEET_WRITE,
+        SALES_READ,
+        SALES_WRITE,
+        ASSESSMENT_READ,
+        ASSESSMENT_WRITE,
+        INCIDENT_READ,
+        INCIDENT_WRITE,
+        AGENT_RUN,
+        AUDIT_READ,
+        RULE_READ,
+        BRANCH_READ,
+    ],
     ROLE_HSE: [
         COMPLIANCE_READ,
         COMPLIANCE_WRITE,
@@ -58,6 +96,8 @@ ROLE_PRESETS: dict[str, list[str]] = {
         SALES_READ,
         AGENT_RUN,
         AUDIT_READ,
+        RULE_READ,
+        BRANCH_READ,
     ],
     ROLE_VIEWER: list(READ_PERMISSIONS),
 }
