@@ -6,11 +6,19 @@ Separate Ops-, Compliance- und Bestandsaufnahme-Anwendung fuer die Niederlassung
 
 ## Umfang
 
-- Bestandsaufnahme als primaerer Einstieg fuer manuell erfasste Niederlassungsdaten
-- Cockpit mit ueberfaelligen Compliance-Themen, 30-Tage-Faelligkeiten, offenen Massnahmen, Incidents, Qualifikationen, Service- und Pipeline-Snapshot
-- Compliance-Records CRUD mit serverseitiger Validierung
-- Evidence- und Massnahmenmodell pro Compliance-Record
-- Mitarbeiter und Qualifikationen mit Ablauf-/Reminderlogik
+- **Cockpit als Arbeitsliste**: was ueberfaellig ist, was in 30 Tagen ansteht,
+  wer heute nicht einsetzbar ist, Ersthelferquote nach DGUV Vorschrift 1
+- **Funktionen und Qualifikationen**: Projektleiter, Service-Techniker und
+  Monteur tragen die Qualifikationen, die sie erfordern; daraus folgt je
+  Mitarbeiter die Einsatzfaehigkeit. Details in
+  [`docs/qualifikationen.md`](docs/qualifikationen.md)
+- **Qualifikationsmatrix**: Mitarbeiter gegen Qualifikationsarten, gefiltert
+  auf Luecken
+- **Fuhrpark** mit HU, UVV, Service, Fahrerzuordnung und einer Warnung, wenn
+  die Fuehrerscheinkontrolle des zugeordneten Fahrers ueberfaellig ist
+- **Compliance-Themen** mit Vorlagenkatalog der Standardpflichten, Nachweisen
+  und Massnahmen
+- Bestandsaufnahme als Stichtagsaufnahme der Niederlassung
 - Incident-Erfassung
 - Rollenbasierte Zugriffskontrolle auf allen API-Endpunkten
 - Audit Log fuer Compliance-relevante Aenderungen, lesbar ueber `GET /api/audit-log`
@@ -19,6 +27,18 @@ Separate Ops-, Compliance- und Bestandsaufnahme-Anwendung fuer die Niederlassung
 - Docker Compose mit `ops-frontend`, `ops-backend`, `db` und `worker`
 
 Nicht enthalten: Dashboard-Import, Shared DB, Synchronisation mit dem vorhandenen Projekt-Dashboard.
+
+## Oberflaeche
+
+![Leitercockpit](docs/screenshots/01-cockpit.png)
+
+Weitere Ansichten in [`docs/screenshots/`](docs/screenshots/): Mitarbeiter,
+Qualifikationsmatrix, Fahrzeuge, Compliance und Stammdaten.
+
+Das Erscheinungsbild folgt dem gemeinsamen PDS-Fokus-Styleguide
+([`docs/design/`](docs/design/)), damit die Anwendung mit den uebrigen
+Unternehmens-Apps zusammenpasst. Tokens und Bausteine liegen unveraendert in
+`frontend/src/styles/`; eigene Farben oder Radien kommen nicht vor.
 
 ## Authentifizierung
 

@@ -30,6 +30,7 @@ export type RecordItem = {
   owner_user_id: string;
   legal_basis: string;
   control_type: string;
+  recurrence?: string | null;
   due_date: string;
   review_date: string;
   risk_if_missing?: string | null;
@@ -69,16 +70,123 @@ export type EmployeeProfile = {
   notes?: string | null;
 };
 
+export type QualificationType = {
+  id: string;
+  code: string;
+  name: string;
+  category: string;
+  validity_months?: number | null;
+  reminder_days: number;
+  evidence_required: boolean;
+  legal_basis?: string | null;
+  description?: string | null;
+  active: boolean;
+};
+
+export type JobRoleRequirement = {
+  id: string;
+  job_role_id: string;
+  qualification_type_id: string;
+  mandatory: boolean;
+  note?: string | null;
+  qualification_name: string;
+  qualification_code: string;
+};
+
+export type JobRole = {
+  id: string;
+  name: string;
+  description?: string | null;
+  active: boolean;
+  requirements: JobRoleRequirement[];
+  employee_count: number;
+};
+
+export type Qualification = {
+  id: string;
+  employee_id: string;
+  title: string;
+  qualification_type: string;
+  qualification_type_id?: string | null;
+  issued_on?: string | null;
+  valid_until?: string | null;
+  document_id?: string | null;
+  reminder_days: number;
+  due_state: State;
+  overdue: boolean;
+};
+
+/** One line of the qualification matrix: required vs. recorded. */
+export type RequirementState = {
+  qualification_type_id: string;
+  code: string;
+  name: string;
+  category: string;
+  mandatory: boolean;
+  state: "ok" | "expiring" | "expired" | "missing" | "undated" | "evidence_missing";
+  valid_until?: string | null;
+  issued_on?: string | null;
+  qualification_id?: string | null;
+  has_evidence: boolean;
+};
+
+export type Readiness = "ready" | "limited" | "blocked";
+
 export type Employee = {
   id: string;
   branch_id: string;
   full_name: string;
   role: string;
+  job_role_id?: string | null;
+  job_role_name?: string | null;
   team?: string | null;
   start_date?: string | null;
+  status: string;
+  exit_date?: string | null;
   first_aider: boolean;
   skills: string[];
+  notes?: string | null;
   profile?: EmployeeProfile | null;
+  qualifications: Qualification[];
+  requirements: RequirementState[];
+  readiness: Readiness;
+  due_state: State;
+  open_requirements: number;
+  next_due_title?: string | null;
+  next_due_date?: string | null;
+};
+
+export type MatrixCell = {
+  qualification_type_id: string;
+  state: string;
+  mandatory: boolean;
+  valid_until?: string | null;
+  has_evidence: boolean;
+};
+
+export type MatrixRow = {
+  employee_id: string;
+  full_name: string;
+  job_role_id?: string | null;
+  job_role_name?: string | null;
+  readiness: Readiness;
+  cells: MatrixCell[];
+};
+
+export type QualificationMatrix = {
+  qualification_types: QualificationType[];
+  rows: MatrixRow[];
+};
+
+export type ComplianceTemplate = {
+  key: string;
+  title: string;
+  category: string;
+  control_type: string;
+  recurrence: string;
+  legal_basis: string;
+  priority: string;
+  risk_if_missing: string;
 };
 
 export type Vehicle = {
@@ -103,6 +211,12 @@ export type Vehicle = {
   fuel_card_number?: string | null;
   equipment: string[];
   notes?: string | null;
+  assigned_employee_name?: string | null;
+  due_state: State;
+  next_due_title?: string | null;
+  next_due_date?: string | null;
+  /** Set when the assigned driver's licence check has lapsed. */
+  driver_alert?: string | null;
 };
 
 export type Assessment = {
@@ -121,16 +235,27 @@ export type Assessment = {
   notes?: string | null;
 };
 
+export type FirstAiderStatus = {
+  headcount: number;
+  trained: number;
+  required: number;
+  state: State;
+};
+
 export type Cockpit = {
   metrics: Metric[];
   reminders: Reminder[];
   overdue_compliance: RecordItem[];
   due_soon_compliance: RecordItem[];
   open_actions: Action[];
+  expiring_qualifications: Qualification[];
   pipeline_value: number;
   service_due_count: number;
   vehicle_due_count: number;
   employee_due_count: number;
+  blocked_employees: number;
+  limited_employees: number;
+  first_aiders?: FirstAiderStatus | null;
 };
 
 export type Branch = { id: string; name: string };

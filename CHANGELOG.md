@@ -3,6 +3,81 @@
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 Versionierung nach [Semantic Versioning](https://semver.org/lang/de/).
 
+## [1.1.0] - 2026-08-09
+
+Qualifikationsmodell und neue Oberflaeche im PDS-Fokus-Design.
+
+### Hinzugefuegt
+
+- **Funktionen und Qualifikationskatalog.** Projektleiter, Service-Techniker
+  und Monteur tragen die Qualifikationen, die sie erfordern. Katalog und
+  Anforderungsmatrix sind unter *Stammdaten* bearbeitbar. Fachliche Grundlage:
+  [`docs/qualifikationen.md`](docs/qualifikationen.md).
+- **Einsatzfaehigkeit** je Mitarbeiter, aus Anforderung und erfasstem Stand
+  berechnet: einsatzfaehig, eingeschraenkt, nicht einsatzfaehig. Ein gueltiges
+  Datum ohne hinterlegtes Dokument ist ein eigener Zustand - bei einer
+  Besichtigung ist es sonst nicht belegbar.
+- **Qualifikationsmatrix**: Mitarbeiter gegen Qualifikationsarten, mit Filter
+  auf Luecken. Jede Zelle traegt zusaetzlich zur Farbe ein Zeichen.
+- **Fuehrerscheinkontrolle als Qualifikation mit Turnus** (sechs Monate,
+  nachweispflichtig). Ist einem Fahrzeug ein Fahrer mit ueberfaelliger
+  Kontrolle zugeordnet, weist die Fahrzeugliste darauf hin.
+- **Ersthelferquote** nach DGUV Vorschrift 1 Paragraf 26 im Cockpit. Das Feld
+  `first_aider` wurde bisher erfasst und nie angezeigt.
+- **Mitarbeiterstatus aktiv/ausgeschieden** mit Austrittsdatum. Ausgeschiedene
+  loesen keine Erinnerungen aus, bleiben aber vollstaendig erhalten -
+  Nachweise unterliegen Aufbewahrungsfristen.
+- **Vorlagenkatalog** fuer die Standardpflichten einer Niederlassung
+  (Gefaehrdungsbeurteilung, Unterweisung, DGUV V3, Hubarbeitsbuehnenpruefung,
+  Erste Hilfe, Brandschutz, Vorsorge, Regalpruefung). Themen werden ausgewaehlt
+  statt aus dem Kopf erfasst.
+- **Bearbeiten** fuer Mitarbeiter und Fahrzeuge. Die PATCH-Endpunkte gab es
+  seit 1.0.0, die Oberflaeche rief sie nie auf - ein Tippfehler war nur ueber
+  Loeschen und Neuanlegen korrigierbar, und Loeschen war bei zugeordnetem
+  Fahrzeug gesperrt.
+- **Hash-Routing**: Ansichten sind verlinkbar, Browser-Zurueck und F5
+  funktionieren.
+- Ablaufdaten werden aus der Gueltigkeitsdauer des Katalogs berechnet.
+
+### Geaendert
+
+- **Oberflaeche auf den PDS-Fokus-Styleguide umgestellt** (`docs/design/`):
+  Topbar-Shell, Werkbank-Tabellen, Status-Pills, Dialoge in vier festen
+  Breiten, Archivo fuer die Oberflaeche und IBM Plex Mono fuer Zahlen und
+  Daten. Schriften liegen im Image, es gehen keine Requests nach aussen.
+- Mitarbeiter und Fahrzeuge stehen in Tabellen statt in Karten; Anlegen,
+  Bearbeiten und Details laufen ueber Dialoge. Die Liste beginnt damit wieder
+  oben statt unter einem dauerhaft geoeffneten Formular.
+- Fahrzeuge zeigen den zugeordneten Mitarbeiter, Kilometerstand, FIN,
+  Eigentumsart und Tankkarte - alles bisher erfasst und nie dargestellt.
+- Compliance-Detail zeigt Nachweise und Massnahmen beim Thema, zu dem sie
+  gehoeren.
+- Das Cockpit ist eine Arbeitsliste nach Faelligkeit statt einer Namensliste
+  aller Mitarbeiter und Fahrzeuge ohne Status.
+- Statuswerte erscheinen auf Deutsch. Bisher stand `training_instruction` und
+  `non_compliant` woertlich auf dem Bildschirm.
+- Erinnerungen zu Schulungen und Fahrerlaubnis kommen aus den Qualifikationen
+  statt aus den Profilspalten; doppelte Eintraege entfallen.
+- `GET /api/auth/dev-users` liefert die Rolle mit den weitesten Rechten zuerst.
+  Alphabetisch stand der Betrachter vorn, sodass die Anwendung ohne gespeicherte
+  Identitaet ohne jede Aktion startete.
+
+### Migration
+
+`0004_qualifications`, rein additiv. Die Schulungs- und Fahrerlaubnisdaten
+werden aus `employee_profiles` nach `employee_qualifications` **kopiert**; die
+Quellspalten bleiben unveraendert stehen, auch nach einem Downgrade. Freitexte
+in `employees.role` werden ueber eine Aliasliste mit den Funktionen verknuepft,
+der Freitext selbst bleibt als Bezeichnung erhalten. Keine Spalte wird
+entfernt, keine bestehende auf NOT NULL gezogen.
+
+### Bekannte Einschraenkungen
+
+- Der Vertriebsbereich wurde nur auf die neuen Bausteine gehoben, fachlich
+  nicht ueberarbeitet - eine Entscheidung ueber seinen Verbleib steht aus.
+- Azure AD bleibt vorbereitet, aber nicht aktiv (MSAL fehlt im Frontend).
+- Ein Export der Nachweise fuer eine Besichtigung fehlt weiterhin.
+
 ## [1.0.0] - 2026-08-03
 
 Erstes Release mit Container-Images auf ghcr.io.
@@ -88,4 +163,5 @@ Erstes Release mit Container-Images auf ghcr.io.
 - Der Worker laeuft als Einzelinstanz ohne Sperren; mehrere Instanzen
   parallel sind nicht vorgesehen.
 
+[1.1.0]: https://github.com/markusjung60389/niederlassung-ops/releases/tag/v1.1.0
 [1.0.0]: https://github.com/markusjung60389/niederlassung-ops/releases/tag/v1.0.0

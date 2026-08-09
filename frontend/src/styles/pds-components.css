@@ -1,0 +1,981 @@
+/* ==========================================================================
+ * PDS Fokus-Design — Bausteine als reines CSS
+ * --------------------------------------------------------------------------
+ * Setzt `pds-theme.css` voraus. Diese Datei ist fuer Projekte ohne Tailwind
+ * bzw. ohne shadcn/ui gedacht: dieselben Maße, Farben und Zustaende wie in
+ * der ProDoc Suite, aber als Klassen.
+ *
+ * Tailwind-Projekte brauchen diese Datei nicht — dort stehen die
+ * Utility-Ketten im README (Abschnitt „Bausteine").
+ * ========================================================================== */
+
+/* --------------------------------------------------------------------------
+ * 1 · Shell: Topbar + Seiteninhalt
+ * ----------------------------------------------------------------------- */
+
+.pds-shell {
+  min-height: 100vh;
+  background: var(--pds-app-bg);
+  color: var(--pds-text);
+}
+
+.pds-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--pds-border);
+  background: rgba(255, 255, 255, 0.94);
+  padding: 10px 28px;
+  backdrop-filter: blur(8px);
+}
+
+.pds-topbar__brand {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 14px;
+}
+
+/* Logo-Kachel 32x32, Kuerzel 13px/800 weiss auf Azur. */
+.pds-logo {
+  display: inline-flex;
+  height: 32px;
+  width: 32px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--pds-radius-sm);
+  background: var(--pds-brand);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.pds-version {
+  flex-shrink: 0;
+  color: var(--pds-placeholder);
+  font-family: var(--pds-font-mono);
+  font-size: 11px;
+}
+
+.pds-nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.pds-nav__link {
+  display: inline-flex;
+  height: 34px;
+  align-items: center;
+  gap: 6px;
+  border-radius: var(--pds-radius-sm);
+  padding: 0 14px;
+  color: var(--pds-text-3);
+  font-size: 14px;
+  font-weight: 500;
+  transition: background-color 150ms, color 150ms;
+}
+
+.pds-nav__link:hover {
+  background: var(--pds-field-muted);
+}
+
+.pds-nav__link.is-active {
+  background: var(--pds-tint);
+  color: var(--pds-brand-strong-hover);
+  font-weight: 600;
+}
+
+/* Zaehler-Badge in der Navigation. */
+.pds-nav__count {
+  display: inline-flex;
+  height: 18px;
+  min-width: 18px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--pds-amber);
+  padding: 0 6px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.pds-page {
+  margin: 0 auto;
+  width: 100%;
+  max-width: var(--pds-content-max);
+  padding: 28px;
+}
+
+.pds-page--editor {
+  max-width: var(--pds-editor-max);
+  padding: 24px;
+}
+
+.pds-page__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.pds-page__title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.pds-page__subtitle {
+  margin: 4px 0 0;
+  color: var(--pds-muted);
+  font-size: 14px;
+}
+
+/* --------------------------------------------------------------------------
+ * 2 · Buttons
+ * ----------------------------------------------------------------------- */
+
+.pds-btn {
+  display: inline-flex;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid transparent;
+  border-radius: var(--pds-radius-sm);
+  padding: 0 14px;
+  background: none;
+  color: var(--pds-text-2);
+  font-size: 13.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 150ms, border-color 150ms, color 150ms;
+}
+
+.pds-btn:focus-visible {
+  outline: none;
+  border-color: var(--pds-brand);
+  box-shadow: 0 0 0 3px rgba(0, 157, 224, 0.25);
+}
+
+.pds-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Primaerbutton im Content — der kontraststarke Azur-Ton. */
+.pds-btn--primary {
+  background: var(--pds-brand-strong);
+  color: #fff;
+  font-weight: 600;
+}
+
+.pds-btn--primary:hover:not(:disabled) {
+  background: var(--pds-brand-strong-hover);
+}
+
+/* Primaeraktion in dunklen Leisten (Summenleiste) — der helle Signalton. */
+.pds-btn--brand {
+  background: var(--pds-brand);
+  color: #fff;
+  font-weight: 600;
+}
+
+.pds-btn--brand:hover:not(:disabled) {
+  background: var(--pds-brand-light);
+}
+
+.pds-btn--outline {
+  border-color: var(--pds-border-input);
+  background: #fff;
+}
+
+.pds-btn--outline:hover:not(:disabled) {
+  background: var(--pds-field-muted);
+}
+
+/* Outline auf dunklem Grund. */
+.pds-btn--on-dark {
+  border-color: rgba(255, 255, 255, 0.25);
+  background: transparent;
+  color: #fff;
+}
+
+.pds-btn--on-dark:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.pds-btn--ghost:hover:not(:disabled) {
+  background: var(--pds-field-muted);
+}
+
+.pds-btn--danger {
+  background: var(--pds-danger-bg);
+  color: var(--pds-danger);
+}
+
+.pds-btn--link {
+  height: auto;
+  padding: 0;
+  color: var(--pds-brand-strong);
+  font-weight: 600;
+}
+
+.pds-btn--link:hover {
+  text-decoration: underline;
+}
+
+.pds-btn--sm {
+  height: 32px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.pds-btn--lg {
+  height: 38px;
+}
+
+/* Icon-Buttons: eine Groesse pro Kontext, nie gemischt. */
+.pds-icon-btn {
+  display: inline-flex;
+  height: 30px;
+  width: 30px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--pds-border-input);
+  border-radius: var(--pds-radius-xs);
+  background: #fff;
+  color: var(--pds-text-3);
+  cursor: pointer;
+  transition: background-color 150ms;
+}
+
+.pds-icon-btn:hover:not(:disabled) {
+  background: var(--pds-field-muted);
+}
+
+.pds-icon-btn--danger {
+  border-color: transparent;
+  background: var(--pds-danger-bg);
+  color: var(--pds-danger);
+}
+
+/* --------------------------------------------------------------------------
+ * 3 · Formularfelder
+ * ----------------------------------------------------------------------- */
+
+.pds-field {
+  display: grid;
+  gap: 6px;
+}
+
+.pds-label {
+  color: var(--pds-text-2);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+/* Mikro-Label in Detailbereichen. */
+.pds-label--micro {
+  color: var(--pds-muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.pds-input,
+.pds-select,
+.pds-textarea {
+  width: 100%;
+  height: 38px;
+  border: 1px solid var(--pds-border-input);
+  border-radius: var(--pds-radius-sm);
+  background: #fff;
+  padding: 0 12px;
+  color: var(--pds-text);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 150ms, box-shadow 150ms;
+}
+
+.pds-textarea {
+  height: auto;
+  min-height: 84px;
+  padding: 9px 12px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.pds-input::placeholder,
+.pds-textarea::placeholder {
+  color: var(--pds-placeholder);
+}
+
+.pds-input:focus,
+.pds-select:focus,
+.pds-textarea:focus {
+  border-color: var(--pds-tint-border-strong);
+  box-shadow: 0 0 0 2px rgba(0, 157, 224, 0.2);
+}
+
+.pds-input:disabled,
+.pds-select:disabled,
+.pds-textarea:disabled {
+  background: var(--pds-field-muted);
+  color: var(--pds-text-3);
+}
+
+/* Readonly-Werte (EP, Gesamt): graue Flaeche, Mono, kein Fokusring. */
+.pds-input--readonly {
+  background: var(--pds-field-muted);
+  font-family: var(--pds-font-mono);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* Pflichtangabe fehlt: amber statt rot — es ist unvollstaendig, nicht falsch. */
+.pds-input.is-warn,
+.pds-select.is-warn {
+  border-width: 1.5px;
+  border-color: var(--pds-warn-border);
+  color: var(--pds-amber-text);
+}
+
+.pds-input.is-error {
+  border-color: var(--pds-danger);
+  box-shadow: 0 0 0 2px rgba(179, 38, 30, 0.15);
+}
+
+/* Kompakte Variante fuer dichte Zeilen. */
+.pds-input--sm {
+  height: 34px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+/* Suchfeld mit Icon links. */
+.pds-search {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  max-width: 420px;
+}
+
+.pds-search__icon {
+  position: absolute;
+  left: 11px;
+  width: 15px;
+  height: 15px;
+  color: var(--pds-muted);
+  pointer-events: none;
+}
+
+.pds-search .pds-input {
+  height: 36px;
+  padding-left: 34px;
+  padding-right: 32px;
+  font-size: 13.5px;
+}
+
+/* --------------------------------------------------------------------------
+ * 4 · Segment-Control
+ * ----------------------------------------------------------------------- */
+
+.pds-segment {
+  display: inline-flex;
+  height: 36px;
+  align-items: center;
+  border-radius: var(--pds-radius-sm);
+  background: var(--pds-segment-bg);
+  padding: 3px;
+}
+
+.pds-segment__btn {
+  display: inline-flex;
+  height: 30px;
+  align-items: center;
+  border: 0;
+  border-radius: var(--pds-radius-xs);
+  padding: 0 12px;
+  background: transparent;
+  color: var(--pds-text-3);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 150ms, color 150ms;
+}
+
+.pds-segment__btn:hover {
+  color: var(--pds-text);
+}
+
+.pds-segment__btn.is-active {
+  background: #fff;
+  color: var(--pds-text);
+  box-shadow: var(--pds-shadow-segment);
+}
+
+/* --------------------------------------------------------------------------
+ * 5 · Pills, Chips, Badges
+ * ----------------------------------------------------------------------- */
+
+.pds-pill {
+  display: inline-flex;
+  height: 22px;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.pds-pill__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.pds-pill--ok {
+  background: var(--pds-success-bg);
+  color: var(--pds-success-text);
+}
+
+.pds-pill--ok .pds-pill__dot {
+  background: var(--pds-success);
+}
+
+.pds-pill--warn {
+  background: var(--pds-amber-bg);
+  color: var(--pds-amber-text);
+}
+
+.pds-pill--warn .pds-pill__dot {
+  background: var(--pds-amber);
+}
+
+.pds-pill--danger {
+  background: var(--pds-danger-bg);
+  color: var(--pds-danger);
+}
+
+.pds-pill--muted {
+  background: var(--pds-field-muted);
+  color: var(--pds-muted);
+}
+
+.pds-pill--info {
+  background: var(--pds-tint);
+  color: var(--pds-brand-strong-hover);
+}
+
+/* Filter-/Auswahl-Chip: klickbar, aktiv = Azur-Rahmen. */
+.pds-chip {
+  display: inline-flex;
+  height: 28px;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--pds-border-input);
+  border-radius: 999px;
+  padding: 0 12px;
+  background: #fff;
+  color: var(--pds-text-2);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 150ms, border-color 150ms, color 150ms;
+}
+
+.pds-chip:hover {
+  background: var(--pds-field-muted);
+}
+
+.pds-chip.is-active {
+  border-color: var(--pds-brand-strong);
+  background: var(--pds-tint);
+  color: var(--pds-brand-strong);
+}
+
+/* Kuerzel-Marke (Verantwortlicher, Quelle) — eckig, damit sie nicht wie ein
+   Status aussieht. */
+.pds-tag {
+  display: inline-flex;
+  height: 22px;
+  min-width: 30px;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--pds-radius-xs);
+  background: var(--pds-field-muted);
+  padding: 0 6px;
+  color: var(--pds-text-2);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+/* --------------------------------------------------------------------------
+ * 6 · Karten und Abschnitte
+ * ----------------------------------------------------------------------- */
+
+.pds-card {
+  border: 1px solid var(--pds-border);
+  border-radius: var(--pds-radius-md);
+  background: #fff;
+}
+
+.pds-card__body {
+  padding: 16px 18px;
+}
+
+/* Nummerierte Abschnittskarte des Editors. */
+.pds-section {
+  overflow: hidden;
+  border: 1px solid var(--pds-border);
+  border-radius: var(--pds-radius-lg);
+  background: #fff;
+  scroll-margin-top: 76px;
+}
+
+/* Abschnitt mit fehlenden Pflichtangaben. */
+.pds-section.is-warn {
+  border-color: var(--pds-warn-bg-2);
+  background: var(--pds-warn-bg);
+}
+
+.pds-section__head {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 24px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pds-section__head:hover {
+  background: var(--pds-tint-bg-2);
+}
+
+.pds-section__title {
+  margin: 0;
+  flex-shrink: 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+/* Einzeilige Zusammenfassung neben dem Titel, wenn eingeklappt. */
+.pds-section__summary {
+  overflow: hidden;
+  color: var(--pds-muted);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pds-section__body {
+  padding: 4px 24px 24px;
+}
+
+.pds-section__chevron {
+  color: var(--pds-muted);
+  transition: transform 150ms;
+}
+
+.pds-section.is-open .pds-section__chevron {
+  transform: rotate(180deg);
+}
+
+/* Auswahlkarte (gesetzter Wert) und gestrichelte CTA (leerer Wert). */
+.pds-selection-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--pds-border);
+  border-radius: var(--pds-radius-sm);
+  background: #fff;
+  padding: 12px 14px;
+}
+
+.pds-dashed-cta {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px dashed var(--pds-border-dashed);
+  border-radius: var(--pds-radius-sm);
+  background: transparent;
+  padding: 14px;
+  color: var(--pds-text-3);
+  font-size: 13.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 150ms, border-color 150ms;
+}
+
+.pds-dashed-cta:hover {
+  border-color: var(--pds-tint-border-strong);
+  background: var(--pds-tint-bg);
+  color: var(--pds-brand-strong);
+}
+
+/* --------------------------------------------------------------------------
+ * 7 · Werkbank-Tabelle
+ * ----------------------------------------------------------------------- */
+
+.pds-table {
+  overflow: hidden;
+  border: 1px solid var(--pds-border);
+  border-radius: var(--pds-radius-md);
+  background: #fff;
+}
+
+.pds-table__head,
+.pds-table__row {
+  display: grid;
+  align-items: center;
+  column-gap: 16px;
+  padding: 10px 18px;
+}
+
+.pds-table__head {
+  border-bottom: 1px solid var(--pds-border);
+  background: var(--pds-app-bg);
+  color: var(--pds-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.pds-table__row {
+  border-bottom: 1px solid var(--pds-border-row);
+  padding-top: 13px;
+  padding-bottom: 13px;
+  font-size: 13.5px;
+  cursor: pointer;
+  transition: background-color 150ms;
+}
+
+.pds-table__row:last-child {
+  border-bottom: 0;
+}
+
+.pds-table__row:hover,
+.pds-table__row:focus-visible {
+  outline: none;
+  background: var(--pds-row-hover);
+}
+
+/* Jede Zelle kuerzt — sonst sprengt ein langer Kundenname das Raster. */
+.pds-table__head > *,
+.pds-table__row > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pds-table__num {
+  color: var(--pds-text-2);
+  font-family: var(--pds-font-mono);
+  font-size: 12.5px;
+}
+
+.pds-table__amount {
+  font-family: var(--pds-font-mono);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: right;
+}
+
+.pds-table__empty {
+  padding: 32px 18px;
+  color: var(--pds-muted);
+  font-size: 14px;
+  text-align: center;
+}
+
+/* Aufklappbare Positionszeile: geoeffnet bekommt sie Azur-Rand + Schatten. */
+.pds-row-card {
+  border: 1px solid var(--pds-border);
+  border-radius: var(--pds-radius-sm);
+  background: #fff;
+}
+
+.pds-row-card.is-open {
+  border-color: var(--pds-tint-border-strong);
+  box-shadow: var(--pds-shadow-position);
+}
+
+.pds-row-card__detail {
+  border-top: 1px solid var(--pds-border-row);
+  background: var(--pds-tint-bg-2);
+  padding: 14px 16px;
+}
+
+/* --------------------------------------------------------------------------
+ * 8 · Stepper
+ * ----------------------------------------------------------------------- */
+
+.pds-stepper {
+  position: sticky;
+  top: 68px;
+  display: flex;
+  height: fit-content;
+  flex-direction: column;
+  gap: 2px;
+  width: 232px;
+}
+
+.pds-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  border-radius: var(--pds-radius-sm);
+  padding: 6px 8px;
+  background: transparent;
+  color: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pds-step:hover {
+  background: var(--pds-field-muted);
+}
+
+.pds-step__num {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid var(--pds-border-dashed);
+  border-radius: 999px;
+  color: var(--pds-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.pds-step__num.is-done {
+  border-color: transparent;
+  background: var(--pds-success-bg);
+  color: var(--pds-success-text);
+}
+
+.pds-step__num.is-warn {
+  border-color: transparent;
+  background: var(--pds-amber-bg);
+  color: var(--pds-amber-text);
+}
+
+/* --------------------------------------------------------------------------
+ * 9 · Sticky-Aktionsleiste, Toast, Dialog
+ * ----------------------------------------------------------------------- */
+
+.pds-actionbar {
+  position: fixed;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 40;
+  border-top: 1px solid rgba(0, 0, 0, 0.2);
+  background: var(--pds-navy);
+  padding-bottom: env(safe-area-inset-bottom);
+  color: #fff;
+}
+
+.pds-actionbar__inner {
+  margin: 0 auto;
+  display: flex;
+  max-width: var(--pds-editor-max);
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 24px;
+}
+
+.pds-actionbar__totals {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 13px;
+}
+
+.pds-actionbar__value {
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+
+.pds-actionbar__total {
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Blocker-Chip: klickbar, springt zum fehlenden Abschnitt. */
+.pds-blocker {
+  display: inline-flex;
+  height: 28px;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--pds-amber-bg);
+  padding: 0 12px;
+  color: var(--pds-amber-text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pds-toast-layer {
+  position: fixed;
+  inset-inline: 0;
+  bottom: 80px;
+  z-index: 50;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.pds-toast {
+  border-radius: 999px;
+  background: #0f1b26;
+  padding: 8px 16px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: var(--pds-shadow-modal);
+}
+
+.pds-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: var(--pds-overlay);
+}
+
+.pds-dialog {
+  border: 1px solid var(--pds-border);
+  border-radius: var(--pds-radius-lg);
+  background: #fff;
+  box-shadow: var(--pds-shadow-modal);
+}
+
+/* Vier Groessen — keine frei gewaehlten Breiten. */
+.pds-dialog--sm {
+  max-width: 440px;
+}
+.pds-dialog--md {
+  max-width: 640px;
+}
+.pds-dialog--lg {
+  max-width: 900px;
+}
+.pds-dialog--viewer {
+  max-width: min(1100px, 92vw);
+  height: 85vh;
+}
+
+.pds-dropdown {
+  border: 1px solid var(--pds-border);
+  border-radius: var(--pds-radius-md);
+  background: #fff;
+  padding: 14px;
+  box-shadow: var(--pds-shadow-dropdown);
+}
+
+/* --------------------------------------------------------------------------
+ * 10 · Toggle
+ * ----------------------------------------------------------------------- */
+
+.pds-switch {
+  position: relative;
+  display: inline-flex;
+  width: 32px;
+  height: 18px;
+  flex-shrink: 0;
+  align-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: var(--pds-toggle-off);
+  padding: 0;
+  cursor: pointer;
+  transition: background-color 150ms;
+}
+
+.pds-switch[aria-checked="true"] {
+  background: var(--pds-toggle-on);
+}
+
+.pds-switch__knob {
+  display: block;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: #fff;
+  transform: translateX(2px);
+  transition: transform 150ms;
+}
+
+.pds-switch[aria-checked="true"] .pds-switch__knob {
+  transform: translateX(16px);
+}
+
+/* --------------------------------------------------------------------------
+ * 11 · Text-Hilfsklassen
+ * ----------------------------------------------------------------------- */
+
+.pds-meta {
+  color: var(--pds-muted);
+  font-size: 12px;
+}
+
+.pds-muted-text {
+  color: var(--pds-muted);
+}
+
+.pds-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--pds-tint-border-strong);
+  border-radius: var(--pds-radius-md);
+  background: var(--pds-tint-bg);
+  padding: 10px 14px;
+  font-size: 13px;
+}
+
+.pds-banner--warn {
+  border-color: var(--pds-warn-bg-2);
+  background: var(--pds-warn-bg);
+}
+
+.pds-banner--danger {
+  border-color: var(--pds-danger);
+  background: var(--pds-danger-bg);
+  color: var(--pds-danger);
+}

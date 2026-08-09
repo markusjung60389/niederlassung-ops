@@ -113,7 +113,7 @@ def test_viewer_cannot_delete(client):
 def test_pipeline_metric_reflects_real_opportunities(client):
     """This tile could only ever show 0 because opportunities had no API."""
     cockpit = client.get("/api/cockpit", headers=auth(MANAGER)).json()
-    assert next(m for m in cockpit["metrics"] if m["label"] == "Pipeline EUR")["value"] == 0.0
+    assert next(m for m in cockpit["metrics"] if m["label"] == "Pipeline (EUR)")["value"] == 0.0
 
     account = make_account(client)
     for volume, offer_status in [(10000, "offer_sent"), (25000, "negotiation"), (99999, "lost")]:
@@ -130,7 +130,7 @@ def test_pipeline_metric_reflects_real_opportunities(client):
 
     cockpit = client.get("/api/cockpit", headers=auth(MANAGER)).json()
     # Lost deals are excluded from the pipeline.
-    assert next(m for m in cockpit["metrics"] if m["label"] == "Pipeline EUR")["value"] == 35000.0
+    assert next(m for m in cockpit["metrics"] if m["label"] == "Pipeline (EUR)")["value"] == 35000.0
     assert cockpit["pipeline_value"] == 35000.0
 
 

@@ -146,3 +146,18 @@ def test_azure_settings_derive_endpoints():
         "OpsManager": "Niederlassungsleiter",
         "GroupX": "HSE / Compliance",
     }
+
+
+def test_dev_users_offer_the_widest_role_first(client):
+    """The frontend selects the first entry when no identity is stored yet.
+
+    Alphabetically that was the read-only viewer, which opened the application
+    with every action hidden.
+    """
+    users = client.get("/api/auth/dev-users", headers=auth(MANAGER)).json()
+    assert users[0]["id"] == "user-branch-manager"
+    assert [item["role_name"] for item in users] == [
+        "Niederlassungsleiter",
+        "HSE / Compliance",
+        "Betrachter",
+    ]

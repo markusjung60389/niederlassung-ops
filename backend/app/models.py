@@ -52,19 +52,91 @@ class User(Base, TimestampMixin):
     role: Mapped[Role | None] = relationship(lazy="joined")
 
 
+class QualificationType(Base, TimestampMixin):
+    """Catalogue of the qualifications a branch tracks.
+
+    The catalogue carries the rule (how long a certificate stays valid, how
+    early to warn, whether a document has to back it up), so an individual
+    qualification only has to carry the dates.
+    """
+
+    __tablename__ = "qualification_types"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    code: Mapped[str] = mapped_column(String(60), nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(String(180), nullable=False)
+    category: Mapped[str] = mapped_column(String(60), default="qualification", nullable=False)
+    # None means the qualification does not expire (driving licence classes).
+    validity_months: Mapped[int | None] = mapped_column(Integer)
+    reminder_days: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
+    evidence_required: Mapped[bool] = mapped_column(default=True, nullable=False)
+    legal_basis: Mapped[str | None] = mapped_column(String(200))
+    description: Mapped[str | None] = mapped_column(Text)
+    active: Mapped[bool] = mapped_column(default=True, nullable=False)
+
+
+class JobRole(Base, TimestampMixin):
+    """A function inside the branch: Projektleiter, Service-Techniker, Monteur.
+
+    Deliberately not called `Role` - that name is taken by the permission role
+    attached to `User`. Keeping them apart matters: one decides what somebody
+    may click, the other what they are allowed to do on site.
+    """
+
+    __tablename__ = "job_roles"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    name: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
+    description: Mapped[str | None] = mapped_column(Text)
+    active: Mapped[bool] = mapped_column(default=True, nullable=False)
+    requirements: Mapped[list["JobRoleRequirement"]] = relationship(
+        back_populates="job_role", cascade="all, delete-orphan"
+    )
+
+
+class JobRoleRequirement(Base, TimestampMixin):
+    """Which qualification a function requires, and whether it is mandatory."""
+
+    __tablename__ = "job_role_requirements"
+    __table_args__ = (
+        UniqueConstraint(
+            "job_role_id", "qualification_type_id", name="uq_job_role_requirements_role_type"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    job_role_id: Mapped[str] = mapped_column(ForeignKey("job_roles.id"), nullable=False, index=True)
+    qualification_type_id: Mapped[str] = mapped_column(
+        ForeignKey("qualification_types.id"), nullable=False, index=True
+    )
+    mandatory: Mapped[bool] = mapped_column(default=True, nullable=False)
+    note: Mapped[str | None] = mapped_column(Text)
+    job_role: Mapped[JobRole] = relationship(back_populates="requirements")
+    qualification_type: Mapped[QualificationType] = relationship(lazy="joined")
+
+
 class Employee(Base, TimestampMixin):
     __tablename__ = "employees"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
     branch_id: Mapped[str] = mapped_column(ForeignKey("branches.id"), nullable=False, index=True)
     full_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    # Free text kept from before the function catalogue existed. `job_role_id`
+    # is the structured successor; `role` stays as the fallback label so no
+    # existing entry loses its job title.
     role: Mapped[str] = mapped_column(String(120), nullable=False)
+    job_role_id: Mapped[str | None] = mapped_column(ForeignKey("job_roles.id"), index=True)
     team: Mapped[str | None] = mapped_column(String(120))
     start_date: Mapped[date | None] = mapped_column(Date)
+    # Departed staff must stay on record for the retention period, so they are
+    # deactivated rather than deleted.
+    status: Mapped[str] = mapped_column(String(20), default="active", nullable=False, index=True)
+    exit_date: Mapped[date | None] = mapped_column(Date)
     first_aider: Mapped[bool] = mapped_column(default=False, nullable=False)
     skills: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text)
     branch: Mapped[Branch] = relationship()
+    job_role: Mapped[JobRole | None] = relationship(lazy="joined")
     qualifications: Mapped[list["EmployeeQualification"]] = relationship(back_populates="employee")
     profile: Mapped["EmployeeProfile | None"] = relationship(back_populates="employee", uselist=False)
 
@@ -75,11 +147,17 @@ class EmployeeQualification(Base, TimestampMixin):
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
     employee_id: Mapped[str] = mapped_column(ForeignKey("employees.id"), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(180), nullable=False)
+    # Free-text kind, kept for rows created before the catalogue.
     qualification_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    qualification_type_id: Mapped[str | None] = mapped_column(
+        ForeignKey("qualification_types.id"), index=True
+    )
+    issued_on: Mapped[date | None] = mapped_column(Date)
     valid_until: Mapped[date | None] = mapped_column(Date, index=True)
     document_id: Mapped[str | None] = mapped_column(ForeignKey("documents.id"))
     reminder_days: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
     employee: Mapped[Employee] = relationship(back_populates="qualifications")
+    type_ref: Mapped[QualificationType | None] = relationship(lazy="joined")
 
 class EmployeeProfile(Base, TimestampMixin):
     __tablename__ = "employee_profiles"

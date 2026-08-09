@@ -32,8 +32,19 @@ def client():
 
 @pytest.fixture(autouse=True)
 def clean_tables(client):
-    """Keeps the seeded branch/roles/users, clears everything else per test."""
-    keep = {"branches", "roles", "users", "alembic_version"}
+    """Keeps the seeded reference data, clears everything else per test."""
+    # The qualification catalogue and the branch functions are seeded reference
+    # data just like roles - wiping them would leave every test without the
+    # requirements it is meant to check against.
+    keep = {
+        "branches",
+        "roles",
+        "users",
+        "alembic_version",
+        "qualification_types",
+        "job_roles",
+        "job_role_requirements",
+    }
     with engine.begin() as connection:
         for table in reversed(Base.metadata.sorted_tables):
             if table.name not in keep:

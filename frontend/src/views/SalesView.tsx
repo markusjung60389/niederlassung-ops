@@ -1,33 +1,67 @@
 import React from "react";
-import { BriefcaseBusiness, Handshake, Wrench } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { apiDelete, apiGet, apiPost } from "../api";
 import { can, type Account, type Bootstrap, type Opportunity, type ServiceContract } from "../types";
+import { ActionCell, Cell, Row, Table, TitleCell } from "../components/Table";
+import { Modal } from "../components/Modal";
 import {
-  Badge,
-  DeleteButton,
+  DueDate,
+  Field,
   FormStatus,
-  Panel,
+  Pill,
+  Section,
+  Select,
+  TextArea,
+  TextInput,
   emptyToNull,
-  formatDate,
   formatEuro,
+  numberOrNull,
   useAction,
   useSubmit,
 } from "../components/ui";
 
-const OFFER_STATES: Record<string, string> = {
-  lead: "yellow",
-  qualified: "yellow",
-  offer_sent: "yellow",
-  negotiation: "yellow",
-  won: "green",
-  lost: "red",
+/**
+ * Sales.
+ *
+ * Deliberately left at its previous scope - only carried over to the shared
+ * components so the application looks like one product. The area is pending a
+ * decision on whether it stays at all.
+ */
+
+const OFFER_LABELS: Record<string, string> = {
+  lead: "Lead",
+  qualified: "qualifiziert",
+  offer_sent: "Angebot raus",
+  negotiation: "Verhandlung",
+  won: "gewonnen",
+  lost: "verloren",
 };
 
-export function SalesView({ bootstrap, permissions }: { bootstrap: Bootstrap; permissions: string[] }) {
+const OFFER_TONES: Record<string, "ok" | "warn" | "danger"> = {
+  won: "ok",
+  lost: "danger",
+};
+
+const ACCOUNT_COLUMNS = "minmax(0,2fr) 140px 140px 72px";
+const OPPORTUNITY_COLUMNS = "120px minmax(0,1.8fr) minmax(0,1fr) 120px 110px 72px";
+const CONTRACT_COLUMNS = "minmax(0,1.8fr) minmax(0,1fr) 90px 120px 72px";
+
+type Dialog = "account" | "opportunity" | "contract" | null;
+
+export function SalesView({
+  bootstrap,
+  permissions,
+  onToast,
+}: {
+  bootstrap: Bootstrap;
+  permissions: string[];
+  onToast: (message: string) => void;
+}) {
   const [accounts, setAccounts] = React.useState<Account[]>([]);
   const [opportunities, setOpportunities] = React.useState<Opportunity[]>([]);
   const [contracts, setContracts] = React.useState<ServiceContract[]>([]);
   const [error, setError] = React.useState<string | null>(null);
+  const [dialog, setDialog] = React.useState<Dialog>(null);
 
   const load = React.useCallback(async () => {
     try {
@@ -49,168 +83,257 @@ export function SalesView({ bootstrap, permissions }: { bootstrap: Bootstrap; pe
     load();
   }, [load]);
 
+  const remove = useAction(() => {
+    onToast("Eintrag geloescht");
+    load();
+  });
   const mayWrite = can(permissions, "sales:write");
   const accountName = (id: string) => accounts.find((item) => item.id === id)?.name || id;
   const openPipeline = opportunities
     .filter((item) => !["won", "lost"].includes(item.offer_status))
     .reduce((total, item) => total + item.expected_volume, 0);
 
-  return (
-    <section className="stack">
-      {error && <div className="notice danger">{error}</div>}
+  const closed = () => {
+    setDialog(null);
+    onToast("Gespeichert");
+    load();
+  };
 
-      <div className="metrics">
-        <div className="metric">
-          <span>Offene Pipeline</span>
-          <strong>{formatEuro(openPipeline)}</strong>
-          <Badge state="green">{opportunities.length} Chancen</Badge>
+  return (
+    <section className="ops-stack">
+      {error && <div className="pds-banner pds-banner--danger">{error}</div>}
+      <FormStatus error={remove.error} busy={remove.busy} busyLabel="Wird geloescht..." />
+
+      <div className="ops-metrics">
+        <div className="ops-metric">
+          <span className="ops-metric__label">Offene Pipeline</span>
+          <strong className="ops-metric__value">{formatEuro(openPipeline)}</strong>
         </div>
-        <div className="metric">
-          <span>Kunden</span>
-          <strong>{accounts.length}</strong>
-          <Badge state="green">erfasst</Badge>
+        <div className="ops-metric">
+          <span className="ops-metric__label">Kunden</span>
+          <strong className="ops-metric__value">{accounts.length}</strong>
         </div>
-        <div className="metric">
-          <span>Servicevertraege</span>
-          <strong>{contracts.length}</strong>
-          <Badge state="green">erfasst</Badge>
+        <div className="ops-metric">
+          <span className="ops-metric__label">Servicevertraege</span>
+          <strong className="ops-metric__value">{contracts.length}</strong>
         </div>
       </div>
 
-      {mayWrite && <AccountForm bootstrap={bootstrap} onSaved={load} />}
+      <Section
+        title="Kunden"
+        actions={
+          mayWrite ? (
+            <button
+              type="button"
+              className="pds-btn pds-btn--outline pds-btn--sm"
+              onClick={() => setDialog("account")}
+            >
+              <Plus size={15} /> Kunde
+            </button>
+          ) : undefined
+        }
+        flush
+      >
+        <Table
+          columns={ACCOUNT_COLUMNS}
+          minWidth={620}
+          head={["Kunde", "Art", "Branche", ""]}
+          empty="Noch keine Kunden erfasst."
+        >
+          {accounts.map((account) => (
+            <Row key={account.id} columns={ACCOUNT_COLUMNS}>
+              <TitleCell title={account.name} meta={account.notes || "-"} />
+              <Cell>
+                <span className="pds-meta">{account.account_type}</span>
+              </Cell>
+              <Cell>
+                <span className="pds-meta">{account.industry || "-"}</span>
+              </Cell>
+              <ActionCell>
+                {mayWrite && (
+                  <button
+                    type="button"
+                    className="pds-icon-btn pds-icon-btn--danger"
+                    aria-label={`${account.name} loeschen`}
+                    onClick={() => remove.run(() => apiDelete(`/api/accounts/${account.id}`))}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )}
+              </ActionCell>
+            </Row>
+          ))}
+        </Table>
+      </Section>
 
-      <Panel title="Kunden" icon={<BriefcaseBusiness size={18} />}>
-        {accounts.length === 0 ? (
-          <div className="empty">Noch keine Kunden erfasst.</div>
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Kunde</th>
-                <th>Art</th>
-                <th>Branche</th>
-                {mayWrite && <th />}
-              </tr>
-            </thead>
-            <tbody>
-              {accounts.map((account) => (
-                <tr key={account.id}>
-                  <td>
-                    <strong>{account.name}</strong>
-                    <span>{account.notes || "-"}</span>
-                  </td>
-                  <td>{account.account_type}</td>
-                  <td>{account.industry || "-"}</td>
-                  {mayWrite && (
-                    <td>
-                      <RowDelete path={`/api/accounts/${account.id}`} name={account.name} onDone={load} />
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </Panel>
+      <Section
+        title="Chancen und Angebote"
+        actions={
+          mayWrite && accounts.length > 0 ? (
+            <button
+              type="button"
+              className="pds-btn pds-btn--outline pds-btn--sm"
+              onClick={() => setDialog("opportunity")}
+            >
+              <Plus size={15} /> Chance
+            </button>
+          ) : undefined
+        }
+        flush
+      >
+        <Table
+          columns={OPPORTUNITY_COLUMNS}
+          head={["Status", "Titel", "Kunde", "Volumen", "Wiedervorlage", ""]}
+          empty="Noch keine Chancen erfasst."
+        >
+          {opportunities.map((item) => (
+            <Row key={item.id} columns={OPPORTUNITY_COLUMNS}>
+              <Cell>
+                <Pill tone={OFFER_TONES[item.offer_status] ?? "warn"}>
+                  {OFFER_LABELS[item.offer_status] ?? item.offer_status}
+                </Pill>
+              </Cell>
+              <TitleCell title={item.title} meta={item.next_step || "-"} />
+              <Cell>
+                <span className="pds-meta">{accountName(item.account_id)}</span>
+              </Cell>
+              <Cell>
+                <span className="pds-table__amount">{formatEuro(item.expected_volume)}</span>
+              </Cell>
+              <Cell>
+                <DueDate value={item.follow_up_date} />
+              </Cell>
+              <ActionCell>
+                {mayWrite && (
+                  <button
+                    type="button"
+                    className="pds-icon-btn pds-icon-btn--danger"
+                    aria-label={`${item.title} loeschen`}
+                    onClick={() => remove.run(() => apiDelete(`/api/opportunities/${item.id}`))}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )}
+              </ActionCell>
+            </Row>
+          ))}
+        </Table>
+      </Section>
 
-      {mayWrite && accounts.length > 0 && <OpportunityForm accounts={accounts} onSaved={load} />}
+      <Section
+        title="Servicevertraege"
+        actions={
+          mayWrite && accounts.length > 0 ? (
+            <button
+              type="button"
+              className="pds-btn pds-btn--outline pds-btn--sm"
+              onClick={() => setDialog("contract")}
+            >
+              <Plus size={15} /> Vertrag
+            </button>
+          ) : undefined
+        }
+        flush
+      >
+        <Table
+          columns={CONTRACT_COLUMNS}
+          minWidth={680}
+          head={["Vertrag", "Kunde", "SLA", "Naechste Wartung", ""]}
+          empty="Noch keine Servicevertraege erfasst."
+        >
+          {contracts.map((contract) => (
+            <Row key={contract.id} columns={CONTRACT_COLUMNS}>
+              <TitleCell title={contract.title} meta={contract.upsell_hint || "-"} />
+              <Cell>
+                <span className="pds-meta">{accountName(contract.account_id)}</span>
+              </Cell>
+              <Cell>
+                <span className="ops-date">
+                  {contract.sla_response_hours ? `${contract.sla_response_hours} h` : "-"}
+                </span>
+              </Cell>
+              <Cell>
+                <DueDate value={contract.next_maintenance_at} />
+              </Cell>
+              <ActionCell>
+                {mayWrite && (
+                  <button
+                    type="button"
+                    className="pds-icon-btn pds-icon-btn--danger"
+                    aria-label={`${contract.title} loeschen`}
+                    onClick={() => remove.run(() => apiDelete(`/api/service-contracts/${contract.id}`))}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )}
+              </ActionCell>
+            </Row>
+          ))}
+        </Table>
+      </Section>
 
-      <Panel title="Chancen / Angebote" icon={<Handshake size={18} />}>
-        {opportunities.length === 0 ? (
-          <div className="empty">Noch keine Chancen erfasst.</div>
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Status</th>
-                <th>Titel</th>
-                <th>Kunde</th>
-                <th>Volumen</th>
-                <th>Wiedervorlage</th>
-                {mayWrite && <th />}
-              </tr>
-            </thead>
-            <tbody>
-              {opportunities.map((item) => (
-                <tr key={item.id}>
-                  <td>
-                    <Badge state={OFFER_STATES[item.offer_status] || "yellow"}>{item.offer_status}</Badge>
-                  </td>
-                  <td>
-                    <strong>{item.title}</strong>
-                    <span>{item.next_step || "-"}</span>
-                  </td>
-                  <td>{accountName(item.account_id)}</td>
-                  <td>{formatEuro(item.expected_volume)}</td>
-                  <td>{formatDate(item.follow_up_date)}</td>
-                  {mayWrite && (
-                    <td>
-                      <RowDelete path={`/api/opportunities/${item.id}`} name={item.title} onDone={load} />
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </Panel>
-
-      {mayWrite && accounts.length > 0 && <ServiceContractForm accounts={accounts} onSaved={load} />}
-
-      <Panel title="Servicevertraege" icon={<Wrench size={18} />}>
-        {contracts.length === 0 ? (
-          <div className="empty">Noch keine Servicevertraege erfasst.</div>
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Vertrag</th>
-                <th>Kunde</th>
-                <th>SLA</th>
-                <th>Naechste Wartung</th>
-                {mayWrite && <th />}
-              </tr>
-            </thead>
-            <tbody>
-              {contracts.map((contract) => (
-                <tr key={contract.id}>
-                  <td>
-                    <strong>{contract.title}</strong>
-                    <span>{contract.upsell_hint || "-"}</span>
-                  </td>
-                  <td>{accountName(contract.account_id)}</td>
-                  <td>{contract.sla_response_hours ? `${contract.sla_response_hours} h` : "-"}</td>
-                  <td>{formatDate(contract.next_maintenance_at)}</td>
-                  {mayWrite && (
-                    <td>
-                      <RowDelete path={`/api/service-contracts/${contract.id}`} name={contract.title} onDone={load} />
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </Panel>
+      {dialog === "account" && (
+        <AccountDialog bootstrap={bootstrap} onClose={() => setDialog(null)} onSaved={closed} />
+      )}
+      {dialog === "opportunity" && (
+        <OpportunityDialog accounts={accounts} onClose={() => setDialog(null)} onSaved={closed} />
+      )}
+      {dialog === "contract" && (
+        <ContractDialog accounts={accounts} onClose={() => setDialog(null)} onSaved={closed} />
+      )}
     </section>
   );
 }
 
-function RowDelete({ path, name, onDone }: { path: string; name: string; onDone: () => void }) {
-  const { error, busy, run } = useAction(onDone);
+function DialogShell({
+  title,
+  formId,
+  busy,
+  onClose,
+  children,
+}: {
+  title: string;
+  formId: string;
+  busy: boolean;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
   return (
-    <>
-      <DeleteButton
-        label={busy ? "..." : "Loeschen"}
-        confirmText={`"${name}" wirklich loeschen?`}
-        onConfirm={() => run(() => apiDelete(path))}
-      />
-      {error && <span className="inlineError">{error}</span>}
-    </>
+    <Modal
+      open
+      title={title}
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className="pds-btn pds-btn--outline pds-btn--sm" onClick={onClose}>
+            Abbrechen
+          </button>
+          <span className="ops-spacer" />
+          <button
+            type="submit"
+            form={formId}
+            className="pds-btn pds-btn--primary pds-btn--sm"
+            disabled={busy}
+          >
+            {busy ? "Wird gespeichert..." : "Speichern"}
+          </button>
+        </>
+      }
+    >
+      {children}
+    </Modal>
   );
 }
 
-function AccountForm({ bootstrap, onSaved }: { bootstrap: Bootstrap; onSaved: () => void }) {
+function AccountDialog({
+  bootstrap,
+  onClose,
+  onSaved,
+}: {
+  bootstrap: Bootstrap;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
   const { error, busy, run } = useSubmit(onSaved);
   const branchId = bootstrap.branches[0]?.id;
 
@@ -231,26 +354,42 @@ function AccountForm({ bootstrap, onSaved }: { bootstrap: Bootstrap; onSaved: ()
   }
 
   return (
-    <form className="form" onSubmit={submit}>
-      <h2>Kunde erfassen</h2>
-      <div className="formGrid">
-        <input name="name" placeholder="Kundenname" required minLength={2} />
-        <select name="account_type" defaultValue="existing">
-          <option value="existing">Bestandskunde</option>
-          <option value="prospect">Interessent</option>
-          <option value="target">Zielkunde</option>
-          <option value="inactive">Inaktiv</option>
-        </select>
-        <input name="industry" placeholder="Branche" />
-      </div>
-      <textarea name="notes" placeholder="Notizen" />
-      <FormStatus error={error} busy={busy} />
-      <button disabled={busy}>Kunde speichern</button>
-    </form>
+    <DialogShell title="Kunde erfassen" formId="account-form" busy={busy} onClose={onClose}>
+      <form id="account-form" className="ops-dialog__body" onSubmit={submit}>
+        <FormStatus error={error} busy={false} />
+        <div className="ops-grid">
+          <Field label="Kundenname">
+            <TextInput name="name" required minLength={2} />
+          </Field>
+          <Field label="Art">
+            <Select name="account_type" defaultValue="existing">
+              <option value="existing">Bestandskunde</option>
+              <option value="prospect">Interessent</option>
+              <option value="target">Zielkunde</option>
+              <option value="inactive">Inaktiv</option>
+            </Select>
+          </Field>
+          <Field label="Branche" span>
+            <TextInput name="industry" />
+          </Field>
+          <Field label="Notizen" span>
+            <TextArea name="notes" />
+          </Field>
+        </div>
+      </form>
+    </DialogShell>
   );
 }
 
-function OpportunityForm({ accounts, onSaved }: { accounts: Account[]; onSaved: () => void }) {
+function OpportunityDialog({
+  accounts,
+  onClose,
+  onSaved,
+}: {
+  accounts: Account[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
   const { error, busy, run } = useSubmit(onSaved);
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
@@ -262,8 +401,8 @@ function OpportunityForm({ accounts, onSaved }: { accounts: Account[]; onSaved: 
         account_id: data.get("account_id"),
         title: data.get("title"),
         offer_status: data.get("offer_status"),
-        probability: Number(data.get("probability") || 25),
-        expected_volume: Number(data.get("expected_volume") || 0),
+        probability: numberOrNull(data.get("probability")) ?? 25,
+        expected_volume: numberOrNull(data.get("expected_volume")) ?? 0,
         strategic_relevance: data.get("strategic_relevance"),
         next_step: emptyToNull(data.get("next_step")),
         follow_up_date: emptyToNull(data.get("follow_up_date")),
@@ -272,45 +411,65 @@ function OpportunityForm({ accounts, onSaved }: { accounts: Account[]; onSaved: 
   }
 
   return (
-    <form className="form" onSubmit={submit}>
-      <h2>Chance erfassen</h2>
-      <div className="formGrid">
-        <select name="account_id" required>
-          {accounts.map((account) => (
-            <option key={account.id} value={account.id}>
-              {account.name}
-            </option>
-          ))}
-        </select>
-        <input name="title" placeholder="Titel" required minLength={2} />
-        <select name="offer_status" defaultValue="lead">
-          <option value="lead">Lead</option>
-          <option value="qualified">Qualifiziert</option>
-          <option value="offer_sent">Angebot raus</option>
-          <option value="negotiation">Verhandlung</option>
-          <option value="won">Gewonnen</option>
-          <option value="lost">Verloren</option>
-        </select>
-        <input name="expected_volume" type="number" min={0} step={100} placeholder="Volumen EUR" />
-        <input name="probability" type="number" min={0} max={100} placeholder="Wahrscheinlichkeit %" />
-        <select name="strategic_relevance" defaultValue="medium">
-          <option value="low">geringe Relevanz</option>
-          <option value="medium">mittlere Relevanz</option>
-          <option value="high">hohe Relevanz</option>
-        </select>
-        <label>
-          Wiedervorlage
-          <input name="follow_up_date" type="date" />
-        </label>
-      </div>
-      <textarea name="next_step" placeholder="Naechster Schritt" />
-      <FormStatus error={error} busy={busy} />
-      <button disabled={busy}>Chance speichern</button>
-    </form>
+    <DialogShell title="Chance erfassen" formId="opportunity-form" busy={busy} onClose={onClose}>
+      <form id="opportunity-form" className="ops-dialog__body" onSubmit={submit}>
+        <FormStatus error={error} busy={false} />
+        <div className="ops-grid">
+          <Field label="Kunde">
+            <Select name="account_id" required>
+              {accounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Titel">
+            <TextInput name="title" required minLength={2} />
+          </Field>
+          <Field label="Status">
+            <Select name="offer_status" defaultValue="lead">
+              {Object.entries(OFFER_LABELS).map(([value, text]) => (
+                <option key={value} value={value}>
+                  {text}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Volumen in EUR">
+            <TextInput type="number" name="expected_volume" min={0} step={100} />
+          </Field>
+          <Field label="Wahrscheinlichkeit in %">
+            <TextInput type="number" name="probability" min={0} max={100} defaultValue={25} />
+          </Field>
+          <Field label="Strategische Relevanz">
+            <Select name="strategic_relevance" defaultValue="medium">
+              <option value="low">gering</option>
+              <option value="medium">mittel</option>
+              <option value="high">hoch</option>
+            </Select>
+          </Field>
+          <Field label="Wiedervorlage">
+            <TextInput type="date" name="follow_up_date" />
+          </Field>
+          <Field label="Naechster Schritt" span>
+            <TextArea name="next_step" />
+          </Field>
+        </div>
+      </form>
+    </DialogShell>
   );
 }
 
-function ServiceContractForm({ accounts, onSaved }: { accounts: Account[]; onSaved: () => void }) {
+function ContractDialog({
+  accounts,
+  onClose,
+  onSaved,
+}: {
+  accounts: Account[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
   const { error, busy, run } = useSubmit(onSaved);
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
@@ -321,7 +480,7 @@ function ServiceContractForm({ accounts, onSaved }: { accounts: Account[]; onSav
       await apiPost("/api/service-contracts", {
         account_id: data.get("account_id"),
         title: data.get("title"),
-        sla_response_hours: data.get("sla_response_hours") ? Number(data.get("sla_response_hours")) : null,
+        sla_response_hours: numberOrNull(data.get("sla_response_hours")),
         next_maintenance_at: emptyToNull(data.get("next_maintenance_at")),
         upsell_hint: emptyToNull(data.get("upsell_hint")),
       });
@@ -329,26 +488,33 @@ function ServiceContractForm({ accounts, onSaved }: { accounts: Account[]; onSav
   }
 
   return (
-    <form className="form" onSubmit={submit}>
-      <h2>Servicevertrag erfassen</h2>
-      <div className="formGrid">
-        <select name="account_id" required>
-          {accounts.map((account) => (
-            <option key={account.id} value={account.id}>
-              {account.name}
-            </option>
-          ))}
-        </select>
-        <input name="title" placeholder="Vertragstitel" required minLength={2} />
-        <input name="sla_response_hours" type="number" min={1} placeholder="SLA Reaktionszeit (h)" />
-        <label>
-          Naechste Wartung
-          <input name="next_maintenance_at" type="date" />
-        </label>
-      </div>
-      <textarea name="upsell_hint" placeholder="Upselling-Hinweis" />
-      <FormStatus error={error} busy={busy} />
-      <button disabled={busy}>Vertrag speichern</button>
-    </form>
+    <DialogShell title="Servicevertrag erfassen" formId="contract-form" busy={busy} onClose={onClose}>
+      <form id="contract-form" className="ops-dialog__body" onSubmit={submit}>
+        <FormStatus error={error} busy={false} />
+        <div className="ops-grid">
+          <Field label="Kunde">
+            <Select name="account_id" required>
+              {accounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Vertragstitel">
+            <TextInput name="title" required minLength={2} />
+          </Field>
+          <Field label="SLA Reaktionszeit in Stunden">
+            <TextInput type="number" name="sla_response_hours" min={1} />
+          </Field>
+          <Field label="Naechste Wartung">
+            <TextInput type="date" name="next_maintenance_at" />
+          </Field>
+          <Field label="Upselling-Hinweis" span>
+            <TextArea name="upsell_hint" />
+          </Field>
+        </div>
+      </form>
+    </DialogShell>
   );
 }

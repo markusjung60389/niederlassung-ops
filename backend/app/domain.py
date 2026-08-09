@@ -25,6 +25,23 @@ def now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def add_months(start: date, months: int) -> date:
+    """`start` shifted by whole months, clamped to the end of the target month.
+
+    A course taken on 31.08. with a six-month validity expires on 28.02., not
+    on an invalid 31.02. Written out rather than pulling in dateutil for one
+    calculation.
+    """
+    total = start.month - 1 + months
+    year = start.year + total // 12
+    month = total % 12 + 1
+    if month == 12:
+        last_day = 31
+    else:
+        last_day = (date(year + (month // 12), month % 12 + 1, 1) - timedelta(days=1)).day
+    return date(year, month, min(start.day, last_day))
+
+
 def due_state(status: str, due_date: date | None, *, today: date | None = None) -> str:
     current = today or today_local()
     if status in RISK_RED_STATUSES:

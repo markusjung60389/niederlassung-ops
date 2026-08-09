@@ -9,9 +9,11 @@ from .. import models, permissions, schemas
 from ..auth import CurrentPrincipal, Principal, requires
 from ..database import get_db
 from ..domain import DUE_SOON_DAYS, is_overdue, needs_attention, today_local, within_days
+from ..readiness import BLOCKED, LIMITED, first_aider_target, readiness_of, requirement_states
 from ..serializers import (
     action_read,
     build_reminders,
+    employee_query,
     qualification_read,
     record_read,
     reminders_for,
@@ -36,6 +38,27 @@ def cockpit(
     may_read_personnel = principal.has(permissions.PERSONNEL_READ)
     reminders = reminders_for(db, principal)
     qualifications = db.scalars(select(models.EmployeeQualification)).all() if may_read_personnel else []
+
+    # Deployability: how many people cannot be assigned today, and whether the
+    # branch still meets the first-aider minimum.
+    blocked = limited = 0
+    first_aiders: schemas.FirstAiderStatus | None = None
+    if may_read_personnel:
+        employees = db.scalars(employee_query()).all()
+        for employee in employees:
+            states = requirement_states(employee)
+            level = readiness_of(states)
+            blocked += level == BLOCKED
+            limited += level == LIMITED
+        headcount = len(employees)
+        trained = sum(1 for employee in employees if employee.first_aider)
+        required = first_aider_target(headcount)
+        first_aiders = schemas.FirstAiderStatus(
+            headcount=headcount,
+            trained=trained,
+            required=required,
+            state="green" if trained >= required else ("yellow" if trained else "red"),
+        )
 
     employee_due_count = len([item for item in reminders if item.source_type.startswith("employee")])
     vehicle_due_count = len([item for item in reminders if item.source_type == "vehicle"])
@@ -71,31 +94,42 @@ def cockpit(
     ]
 
     return schemas.CockpitResponse(
+        # Labels are display strings and stay German, so every surface names a
+        # figure the same way.
         metrics=[
             schemas.CockpitMetric(
-                label="Overdue compliance", value=len(overdue_records), state="red" if overdue_records else "green"
+                label="Nicht einsatzfaehig", value=blocked, state="red" if blocked else "green"
             ),
             schemas.CockpitMetric(
-                label="Due in 30 days", value=len(due_soon), state="yellow" if due_soon else "green"
+                label="Eingeschraenkt einsatzfaehig",
+                value=limited,
+                state="yellow" if limited else "green",
             ),
             schemas.CockpitMetric(
-                label="Open actions", value=len(open_actions), state="red" if open_actions else "green"
+                label="Compliance ueberfaellig",
+                value=len(overdue_records),
+                state="red" if overdue_records else "green",
             ),
             schemas.CockpitMetric(
-                label="Expiring qualifications",
+                label="Faellig in 30 Tagen", value=len(due_soon), state="yellow" if due_soon else "green"
+            ),
+            schemas.CockpitMetric(
+                label="Offene Massnahmen", value=len(open_actions), state="red" if open_actions else "green"
+            ),
+            schemas.CockpitMetric(
+                label="Ablaufende Qualifikationen",
                 value=len(expiring),
                 state="red" if overdue_qualifications else ("yellow" if expiring else "green"),
             ),
-            schemas.CockpitMetric(label="Pipeline EUR", value=float(pipeline_value), state="green"),
             schemas.CockpitMetric(
-                label="Service due", value=int(service_due_count or 0), state="yellow" if service_due_count else "green"
+                label="Fahrzeugfristen", value=vehicle_due_count, state="yellow" if vehicle_due_count else "green"
             ),
             schemas.CockpitMetric(
-                label="Employee reminders", value=employee_due_count, state="yellow" if employee_due_count else "green"
+                label="Service faellig",
+                value=int(service_due_count or 0),
+                state="yellow" if service_due_count else "green",
             ),
-            schemas.CockpitMetric(
-                label="Vehicle reminders", value=vehicle_due_count, state="yellow" if vehicle_due_count else "green"
-            ),
+            schemas.CockpitMetric(label="Pipeline (EUR)", value=float(pipeline_value), state="green"),
         ],
         overdue_compliance=[record_read(record) for record in overdue_records],
         due_soon_compliance=[record_read(record) for record in due_soon],
@@ -107,6 +141,9 @@ def cockpit(
         service_due_count=int(service_due_count or 0),
         vehicle_due_count=vehicle_due_count,
         employee_due_count=employee_due_count,
+        blocked_employees=blocked,
+        limited_employees=limited,
+        first_aiders=first_aiders,
     )
 
 
@@ -146,11 +183,7 @@ def hermes_branch_context(branch_id: str, db: Session = Depends(get_db)) -> sche
         .options(selectinload(models.ComplianceRecord.evidence), selectinload(models.ComplianceRecord.actions))
         .order_by(models.ComplianceRecord.due_date.asc())
     ).all()
-    employees = db.scalars(
-        select(models.Employee)
-        .where(models.Employee.branch_id == branch_id)
-        .options(selectinload(models.Employee.qualifications), selectinload(models.Employee.profile))
-    ).all()
+    employees = db.scalars(employee_query(branch_id)).all()
     open_actions = db.scalars(
         select(models.ComplianceAction)
         .join(models.ComplianceRecord)
