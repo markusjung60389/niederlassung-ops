@@ -116,11 +116,18 @@ jobs:
       - run: pip install -r backend/requirements.txt
       - run: npm ci
         working-directory: frontend
-      - run: npx playwright install --with-deps chromium
+
+      - name: Install Chromium
         working-directory: frontend
+        # Without --with-deps: the runner image already carries the shared
+        # libraries Chromium needs, and the apt step it would run has been
+        # observed to hang for half an hour.
+        timeout-minutes: 5
+        run: npx playwright install chromium
 
       - name: End-to-end tests
         working-directory: frontend
+        timeout-minutes: 15
         run: npm run e2e
 
       - if: failure()
