@@ -1,225 +1,526 @@
-:root {
-  color: #17212b;
-  background: #f5f7f8;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
+/* PDS Fokus-Design: Tokens und Bausteine unveraendert aus dem Styleguide
+   (docs/design/pds-fokus-styleguide.md). Nichts darunter definiert eigene
+   Farben oder Radien - alles laeuft ueber die --pds-*-Variablen, damit die
+   Oberflaeche mit den uebrigen Unternehmens-Apps zusammenpasst. */
+@import "./styles/pds-theme.css";
+@import "./styles/pds-components.css";
+
+/* ==========================================================================
+ * Ergaenzungen fuer diese Anwendung.
+ * Nur was der Styleguide nicht abdeckt: Kennzahlkacheln, die
+ * Qualifikationsmatrix, Detailraster und der Anmeldebildschirm.
+ * ========================================================================== */
+
+/* The styleguide builds navigation from anchors; here the entries are buttons
+   so the hash router stays in charge. Without this reset the browser's own
+   button chrome shows through and every nav entry looks like a control. */
+button {
+  font: inherit;
 }
 
-* { box-sizing: border-box; }
-body { margin: 0; }
-button, input, select, textarea { font: inherit; }
-button { cursor: pointer; }
-
-.shell {
-  display: grid;
-  grid-template-columns: 248px minmax(0, 1fr);
-  min-height: 100vh;
-}
-
-.sidebar {
-  background: #17212b;
-  color: #f7fbff;
-  padding: 20px 14px;
-}
-
-.brand {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  padding: 8px 8px 22px;
-}
-.brand strong, .brand span { display: block; }
-.brand span { color: #a9b8c7; font-size: 13px; margin-top: 2px; }
-
-nav { display: grid; gap: 6px; }
-nav button, .iconButton {
-  align-items: center;
+.pds-nav__link {
   border: 0;
-  display: flex;
-  gap: 10px;
-}
-nav button {
-  width: 100%;
-  min-height: 40px;
-  color: #dce7ef;
   background: transparent;
-  border-radius: 8px;
-  padding: 0 10px;
+  cursor: pointer;
+}
+
+.pds-nav__link:focus-visible {
+  outline: 2px solid var(--pds-brand);
+  outline-offset: -2px;
+}
+
+/* Eight nav entries do not fit next to the identity on every screen. The nav
+   wraps onto a second line rather than sliding under the identity - the
+   topbar grows, nothing overlaps, and the page still never scrolls sideways. */
+.pds-topbar__brand {
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.pds-nav {
+  flex-wrap: wrap;
+}
+
+/* Below roughly 1200px the identity block moves onto its own line instead of
+   pushing itself off the bar. The page must never scroll sideways
+   (Styleguide section 10). */
+.pds-topbar {
+  flex-wrap: wrap;
+}
+
+.pds-topbar > .ops-row {
+  min-width: 0;
+  flex-wrap: nowrap;
+}
+
+.pds-topbar > .ops-row .pds-select {
+  max-width: 210px;
+}
+
+.ops-identity {
+  min-width: 0;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ops-stack {
+  display: grid;
+  gap: 16px;
+}
+
+.ops-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.ops-row--between {
+  justify-content: space-between;
+}
+
+.ops-spacer {
+  margin-left: auto;
+}
+
+/* --- Kennzahlkacheln ---------------------------------------------------- */
+
+.ops-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(178px, 1fr));
+  gap: 12px;
+}
+
+.ops-metric {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--pds-border);
+  border-radius: var(--pds-radius-md);
+  background: var(--pds-surface);
+  padding: 14px 16px;
+}
+
+.ops-metric__label {
+  color: var(--pds-muted);
+  font-size: 12px;
+}
+
+.ops-metric__value {
+  font-family: var(--pds-font-mono);
+  font-size: 24px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.ops-metric.is-red {
+  border-color: var(--pds-warn-bg-2);
+}
+
+.ops-metric.is-red .ops-metric__value {
+  color: var(--pds-danger);
+}
+
+.ops-metric.is-yellow .ops-metric__value {
+  color: var(--pds-amber-text);
+}
+
+/* --- Abschnitt mit Kopfzeile -------------------------------------------- */
+
+.ops-section {
+  border: 1px solid var(--pds-border);
+  border-radius: var(--pds-radius-lg);
+  background: var(--pds-surface);
+}
+
+.ops-section__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--pds-border);
+  padding: 14px 18px;
+}
+
+.ops-section__title {
+  margin: 0;
+  font-size: 15.5px;
+  font-weight: 700;
+}
+
+.ops-section__body {
+  padding: 16px 18px;
+}
+
+.ops-section__body--flush {
+  padding: 0;
+}
+
+/* --- Werkbank-Tabelle: Spaltenraster pro Ansicht ------------------------- */
+
+.ops-scroll {
+  overflow-x: auto;
+}
+
+.ops-scroll > .pds-table {
+  min-width: 880px;
+}
+
+.pds-table__row.is-static {
+  cursor: default;
+}
+
+.pds-table__row > .ops-cell,
+.pds-table__head > .ops-cell {
+  overflow: hidden;
+}
+
+.ops-cell--wrap {
+  white-space: normal;
+}
+
+.ops-cell__title {
+  display: block;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ops-cell__meta {
+  display: block;
+  overflow: hidden;
+  color: var(--pds-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ops-cell--actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.ops-date {
+  font-family: var(--pds-font-mono);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ops-date.is-red {
+  color: var(--pds-danger);
+  font-weight: 600;
+}
+
+.ops-date.is-yellow {
+  color: var(--pds-amber-text);
+  font-weight: 600;
+}
+
+.ops-date.is-muted {
+  color: var(--pds-placeholder);
+}
+
+/* --- Qualifikationsmatrix ------------------------------------------------ */
+
+.ops-matrix {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  min-width: 900px;
+}
+
+.ops-matrix th,
+.ops-matrix td {
+  border-bottom: 1px solid var(--pds-border-row);
+  padding: 10px 12px;
   text-align: left;
 }
-nav button:hover, nav button.active { background: #263645; color: #ffffff; }
 
-main { min-width: 0; padding: 22px; }
-.topbar {
-  align-items: center;
-  display: flex;
-  gap: 14px;
-  justify-content: space-between;
-  margin-bottom: 18px;
-}
-.topbar > div:first-child { flex: 1; min-width: 0; }
-
-.identity {
-  align-items: center;
-  background: #edf4f7;
-  border-radius: 8px;
-  color: #3d5364;
-  display: flex;
-  flex-shrink: 0;
-  font-size: 13px;
-  gap: 8px;
-  padding: 8px 12px;
-}
-.identity select {
-  background: #ffffff;
-  border: 1px solid #cbd8e1;
-  border-radius: 6px;
-  font-size: 13px;
-  padding: 4px 6px;
+.ops-matrix thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  border-bottom: 1px solid var(--pds-border);
+  background: var(--pds-app-bg);
+  color: var(--pds-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  vertical-align: bottom;
 }
 
-.shell.signin {
-  align-content: center;
-  grid-template-columns: 1fr;
-  justify-items: center;
-  padding: 40px 20px;
+.ops-matrix thead th.ops-matrix__kind {
+  width: 108px;
+  white-space: normal;
 }
-.shell.signin .panel { max-width: 520px; width: 100%; }
-.shell.signin .panel > * + * { margin-top: 14px; }
-h1 { font-size: 26px; line-height: 1.1; margin: 0 0 5px; }
-h2 { font-size: 18px; margin: 0; }
-h3 { font-size: 14px; margin: 18px 0 8px; }
-p { color: #5b6a76; margin: 0; }
 
-.iconButton, main button {
-  background: #1d6f8f;
-  border: 0;
-  border-radius: 8px;
-  color: white;
-  min-height: 38px;
-  padding: 0 12px;
+.ops-matrix tbody tr:hover {
+  background: var(--pds-row-hover);
 }
-main button:disabled { opacity: .55; cursor: wait; }
 
-.stack { display: grid; gap: 16px; }
-.grid { display: grid; gap: 16px; }
-.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.detailLayout { grid-template-columns: minmax(0, 1.2fr) minmax(360px, .8fr); align-items: start; }
-
-.metrics {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(130px, 1fr));
-  gap: 10px;
+.ops-matrix__person {
+  min-width: 220px;
 }
-.metric, .panel, .detail, .form {
-  background: #ffffff;
-  border: 1px solid #dde5ea;
-  border-radius: 8px;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
-}
-.metric { min-height: 104px; padding: 14px; display: grid; gap: 8px; }
-.metric span { color: #5b6a76; font-size: 13px; }
-.metric strong { font-size: 24px; }
-.panel, .detail, .form { padding: 16px; }
-.panelTitle { align-items: center; display: flex; gap: 9px; margin-bottom: 12px; }
 
-.badge {
-  border-radius: 999px;
+.ops-matrix__cell {
+  text-align: center;
+}
+
+/* Status ist zusaetzlich am Zeichen erkennbar, nicht nur an der Farbe. */
+.ops-mark {
   display: inline-flex;
+  height: 24px;
+  min-width: 24px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
   font-size: 12px;
   font-weight: 700;
-  line-height: 1;
-  min-width: 58px;
-  justify-content: center;
-  padding: 6px 8px;
+}
+
+.ops-mark--ok {
+  background: var(--pds-success-bg);
+  color: var(--pds-success-text);
+}
+
+.ops-mark--warn {
+  background: var(--pds-amber-bg);
+  color: var(--pds-amber-text);
+}
+
+.ops-mark--danger {
+  background: var(--pds-danger-bg);
+  color: var(--pds-danger);
+}
+
+.ops-mark--muted {
+  background: transparent;
+  color: var(--pds-placeholder);
+}
+
+/* --- Detailraster im Dialog ---------------------------------------------- */
+
+.ops-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ops-grid--three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.ops-grid--full > * {
+  grid-column: 1 / -1;
+}
+
+.ops-facts {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  gap: 8px 14px;
+  margin: 0;
+}
+
+.ops-facts dt {
+  color: var(--pds-muted);
+  font-size: 12.5px;
+}
+
+.ops-facts dd {
+  margin: 0;
+  font-size: 13.5px;
+}
+
+/* --- Dialog -------------------------------------------------------------- */
+
+dialog.ops-dialog {
+  width: min(92vw, 640px);
+  max-height: 88vh;
+  border: 1px solid var(--pds-border);
+  border-radius: var(--pds-radius-lg);
+  background: var(--pds-surface);
+  box-shadow: var(--pds-shadow-modal);
+  color: var(--pds-text);
+  padding: 0;
+  overflow: hidden;
+}
+
+dialog.ops-dialog--sm {
+  width: min(92vw, 440px);
+}
+
+dialog.ops-dialog--lg {
+  width: min(92vw, 900px);
+}
+
+dialog.ops-dialog::backdrop {
+  background: var(--pds-overlay);
+}
+
+.ops-dialog__frame {
+  display: flex;
+  max-height: 88vh;
+  flex-direction: column;
+}
+
+.ops-dialog__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  border-bottom: 1px solid var(--pds-border);
+  padding: 16px 20px;
+}
+
+.ops-dialog__title {
+  margin: 0;
+  font-size: 15.5px;
+  font-weight: 700;
+}
+
+.ops-dialog__body {
+  display: grid;
+  gap: 14px;
+  overflow-y: auto;
+  padding: 18px 20px;
+}
+
+.ops-dialog__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid var(--pds-border);
+  background: var(--pds-app-bg);
+  padding: 12px 20px;
+}
+
+/* Abschnitte im Formular: gliedern 30 Felder, ohne eine Karte in die Karte
+   zu stapeln (Styleguide Paragraf 11). */
+.ops-fieldset {
+  display: grid;
+  gap: 12px;
+  border: 0;
+  border-top: 1px solid var(--pds-border-row);
+  margin: 0;
+  padding: 14px 0 0;
+}
+
+.ops-fieldset:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.ops-fieldset > legend {
+  color: var(--pds-muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  padding: 0;
   text-transform: uppercase;
 }
-.badge.red, .badge.critical { background: #ffe2df; color: #9d2117; }
-.badge.yellow, .badge.high, .badge.in_progress { background: #fff2c7; color: #835700; }
-.badge.green, .badge.medium, .badge.compliant { background: #dff5e8; color: #17633b; }
-.badge.low, .badge.open { background: #dfeeff; color: #235b93; }
 
-.filters { display: flex; gap: 8px; }
-input, select, textarea {
-  border: 1px solid #cbd7df;
-  border-radius: 8px;
-  min-height: 38px;
-  padding: 8px 10px;
+.ops-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--pds-text-2);
+  font-size: 13.5px;
+}
+
+.ops-check input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--pds-brand-strong);
+}
+
+/* --- Anmeldung ----------------------------------------------------------- */
+
+.ops-signin {
+  display: grid;
+  min-height: 100vh;
+  align-content: center;
+  justify-items: center;
+  background: var(--pds-app-bg);
+  padding: 40px 20px;
+}
+
+.ops-signin .pds-card {
+  display: grid;
+  gap: 14px;
+  max-width: 520px;
+  padding: 24px;
   width: 100%;
 }
-textarea { min-height: 74px; resize: vertical; }
-.form { display: grid; gap: 10px; }
-.formGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-label { color: #5b6a76; display: grid; font-size: 13px; gap: 5px; }
 
-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-th { color: #637383; font-size: 12px; font-weight: 700; padding: 8px; text-align: left; text-transform: uppercase; }
-td { border-top: 1px solid #e6edf2; padding: 10px 8px; vertical-align: top; }
-tr { min-height: 54px; }
-tbody tr:hover, tbody tr.selected { background: #f1f6f9; }
-td strong, td span, li strong, li span { display: block; }
-td span, li span { color: #637383; font-size: 13px; margin-top: 3px; }
+/* --- Sonstiges ----------------------------------------------------------- */
 
-.detail { position: sticky; top: 16px; }
-.detailHeader { border-bottom: 1px solid #e6edf2; margin-bottom: 12px; padding-bottom: 12px; }
-.detailHeader h2 { margin: 10px 0 4px; }
-dl { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 8px; margin: 0; }
-dt { color: #637383; font-size: 13px; }
-dd { margin: 0; }
-pre { background: #121a22; color: #e8f2f8; border-radius: 8px; overflow: auto; padding: 12px; white-space: pre-wrap; }
-
-.list { display: grid; gap: 8px; list-style: none; margin: 0; padding: 0; }
-.list li { border: 1px solid #e6edf2; border-radius: 8px; padding: 10px; }
-.empty, .notice { background: #edf4f7; border-radius: 8px; color: #3d5364; padding: 14px; }
-.notice.danger { background: #ffe2df; color: #8f2017; }
-.person { display: grid; gap: 4px; }
-.person span { color: #637383; }
-.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
-.chips span { background: #edf4f7; border-radius: 999px; color: #385063; font-size: 12px; padding: 6px 8px; }
-
-@media (max-width: 1100px) {
-  .metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .two, .detailLayout { grid-template-columns: 1fr; }
-  .detail { position: static; }
+.ops-identity {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  color: var(--pds-text-2);
+  font-size: 13px;
 }
 
-@media (max-width: 760px) {
-  .shell { grid-template-columns: 1fr; }
-  .sidebar { position: static; }
-  nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  main { padding: 14px; }
-  .topbar { align-items: flex-start; gap: 12px; }
-  .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .formGrid { grid-template-columns: 1fr; }
-  table { font-size: 14px; }
+.ops-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
-/* Row and panel actions */
-.panelActions { margin-left: auto; }
-.rowActions { display: flex; flex-wrap: wrap; gap: 6px; }
-.rowActions button, .panelActions button { font-size: 12px; padding: 5px 9px; }
-main button.danger { background: #b03024; }
-main button.danger:hover { background: #8f2017; }
-main button:disabled { cursor: not-allowed; opacity: 0.6; }
-.inlineError { color: #8f2017; display: block; font-size: 12px; margin-top: 4px; }
+.ops-empty {
+  padding: 32px 18px;
+  color: var(--pds-muted);
+  font-size: 14px;
+  text-align: center;
+}
 
-tr.selectable { cursor: pointer; }
-tr.selectable:hover { background: #f2f7fa; }
-tr.selectable.active { background: #e3eff5; }
-
-.form.inline { background: #f7fafc; border: 1px solid #e2ebf0; margin-top: 12px; padding: 14px; }
-.form.inline h3 { align-items: center; display: flex; gap: 6px; margin-top: 0; }
-
-.agentRun { background: #f7fafc; border-radius: 8px; padding: 12px; }
-.agentRun pre {
-  background: #ffffff;
-  border-radius: 6px;
-  font-size: 12px;
-  margin: 8px 0 0;
-  max-height: 320px;
+.ops-code {
   overflow: auto;
-  padding: 10px;
+  max-height: 320px;
+  border: 1px solid var(--pds-border);
+  border-radius: var(--pds-radius-sm);
+  background: var(--pds-field-muted);
+  font-family: var(--pds-font-mono);
+  font-size: 12px;
+  margin: 0;
+  padding: 12px;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+@media (max-width: 900px) {
+  .pds-topbar {
+    flex-wrap: wrap;
+    padding: 10px 16px;
+  }
+
+  .pds-nav {
+    flex-wrap: wrap;
+  }
+
+  .pds-page {
+    padding: 18px 16px;
+  }
+
+  .ops-grid,
+  .ops-grid--three {
+    grid-template-columns: 1fr;
+  }
+
+  .ops-facts {
+    grid-template-columns: 1fr;
+    gap: 2px 0;
+  }
+
+  .ops-facts dd {
+    margin-bottom: 8px;
+  }
 }

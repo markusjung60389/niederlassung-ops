@@ -1,25 +1,42 @@
 import React from "react";
-import { AlertTriangle, ClipboardCheck, Download, FileUp, Sparkles } from "lucide-react";
+import { Download, FileUp, Plus, Sparkles, Trash2, TriangleAlert } from "lucide-react";
 import { apiDelete, apiGet, apiPatch, apiPost, apiUpload, downloadFile } from "../api";
+import { label, options } from "../labels";
 import {
   can,
   type Action,
   type AgentRun,
   type Bootstrap,
+  type ComplianceTemplate,
   type Evidence,
   type RecordItem,
 } from "../types";
+import { ActionCell, Cell, Row, Table, TitleCell } from "../components/Table";
+import { ConfirmDialog, Modal } from "../components/Modal";
 import {
-  Badge,
-  DeleteButton,
+  DueDate,
+  EmptyState,
+  Field,
+  Fieldset,
   FormStatus,
-  Panel,
+  Pill,
+  SearchField,
+  Section,
+  Segments,
+  Select,
+  TextArea,
+  TextInput,
   emptyToNull,
   formatBytes,
   formatDate,
+  toneOf,
   useAction,
   useSubmit,
 } from "../components/ui";
+
+const RECORD_COLUMNS = "104px minmax(0,2fr) minmax(0,1fr) 96px 110px 92px";
+const ACTION_COLUMNS = "104px minmax(0,2fr) minmax(0,1.2fr) 110px 130px";
+type Filter = "open" | "overdue" | "all";
 
 export function ComplianceView({
   records,
@@ -27,186 +44,542 @@ export function ComplianceView({
   bootstrap,
   permissions,
   onReload,
+  onToast,
 }: {
   records: RecordItem[];
   actions: Action[];
   bootstrap: Bootstrap;
   permissions: string[];
   onReload: () => void;
+  onToast: (message: string) => void;
 }) {
-  const [selectedId, setSelectedId] = React.useState<string | null>(null);
-  const selected = records.find((record) => record.id === selectedId) ?? records[0] ?? null;
+  const mayWrite = can(permissions, "compliance:write");
+  const [filter, setFilter] = React.useState<Filter>("open");
+  const [search, setSearch] = React.useState("");
+  const [category, setCategory] = React.useState("");
+  const [creating, setCreating] = React.useState(false);
+  const [detail, setDetail] = React.useState<string | null>(null);
+  const [confirm, setConfirm] = React.useState<RecordItem | null>(null);
+  const remove = useAction(() => {
+    setConfirm(null);
+    onToast("Thema geloescht");
+    onReload();
+  });
+
+  const isOpen = (record: RecordItem) => record.status !== "compliant" && record.status !== "waived";
+  const counts = {
+    open: records.filter(isOpen).length,
+    overdue: records.filter((record) => record.due_state === "red").length,
+    all: records.length,
+  };
+
+  const visible = records
+    .filter((record) => {
+      if (filter === "open") return isOpen(record);
+      if (filter === "overdue") return record.due_state === "red";
+      return true;
+    })
+    .filter((record) => !category || record.category === category)
+    .filter((record) => {
+      const needle = search.trim().toLowerCase();
+      if (!needle) return true;
+      return `${record.title} ${record.legal_basis}`.toLowerCase().includes(needle);
+    });
+
+  const selected = records.find((record) => record.id === detail) ?? null;
+  const openActions = actions.filter((action) => action.status !== "done" && action.status !== "cancelled");
 
   return (
-    <section className="stack">
-      {can(permissions, "compliance:write") && <CreateRecordForm bootstrap={bootstrap} onCreated={onReload} />}
+    <section className="ops-stack">
+      <div className="ops-row ops-row--between">
+        <Segments<Filter>
+          value={filter}
+          onChange={setFilter}
+          options={[
+            { key: "open", label: "Offen", count: counts.open },
+            { key: "overdue", label: "Ueberfaellig", count: counts.overdue },
+            { key: "all", label: "Alle", count: counts.all },
+          ]}
+        />
+        <div className="ops-row ops-spacer">
+          <SearchField value={search} onChange={setSearch} placeholder="Titel oder Rechtsgrundlage" />
+          {mayWrite && (
+            <button
+              type="button"
+              className="pds-btn pds-btn--primary pds-btn--sm"
+              onClick={() => setCreating(true)}
+            >
+              <Plus size={15} /> Thema
+            </button>
+          )}
+        </div>
+      </div>
 
-      <Panel title="Compliance-Records" icon={<ClipboardCheck size={18} />}>
-        <RecordTable records={records} selectedId={selected?.id ?? null} onSelect={setSelectedId} />
-      </Panel>
+      <div className="ops-row">
+        <button
+          type="button"
+          className={`pds-chip${category === "" ? " is-active" : ""}`}
+          onClick={() => setCategory("")}
+        >
+          Alle Kategorien
+        </button>
+        {options.category.map(([value, text]) => {
+          const count = records.filter((record) => record.category === value).length;
+          if (!count) return null;
+          return (
+            <button
+              key={value}
+              type="button"
+              className={`pds-chip${category === value ? " is-active" : ""}`}
+              onClick={() => setCategory(category === value ? "" : value)}
+            >
+              {text} &middot; {count}
+            </button>
+          );
+        })}
+      </div>
 
-      {selected && (
-        <RecordDetail record={selected} permissions={permissions} onReload={onReload} />
+      <FormStatus error={remove.error} busy={remove.busy} busyLabel="Wird geloescht..." />
+
+      <Table
+        columns={RECORD_COLUMNS}
+        head={["Status", "Thema", "Kategorie", "Nachweise", "Faellig", ""]}
+        empty={search || category ? "Kein Treffer." : "Noch keine Compliance-Themen erfasst."}
+      >
+        {visible.map((record) => (
+          <Row
+            key={record.id}
+            columns={RECORD_COLUMNS}
+            onOpen={() => setDetail(record.id)}
+            title="Details oeffnen"
+          >
+            <Cell>
+              <Pill tone={toneOf(record.due_state)}>{label.status(record.status)}</Pill>
+            </Cell>
+            <TitleCell title={record.title} meta={record.legal_basis} />
+            <Cell>
+              <span className="pds-meta">{label.category(record.category)}</span>
+            </Cell>
+            <Cell>
+              <span className={`ops-date${record.evidence.length ? "" : " is-yellow"}`}>
+                {record.evidence.length}
+              </span>
+            </Cell>
+            <Cell>
+              <DueDate value={record.due_date} />
+            </Cell>
+            <ActionCell>
+              {mayWrite && (
+                <button
+                  type="button"
+                  className="pds-icon-btn pds-icon-btn--danger"
+                  aria-label={`${record.title} loeschen`}
+                  onClick={() => setConfirm(record)}
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
+            </ActionCell>
+          </Row>
+        ))}
+      </Table>
+
+      <Section title="Offene Massnahmen" flush>
+        <ActionTable actions={openActions} records={records} mayWrite={mayWrite} onReload={onReload} />
+      </Section>
+
+      {creating && (
+        <CreateRecordDialog
+          bootstrap={bootstrap}
+          onClose={() => setCreating(false)}
+          onSaved={() => {
+            setCreating(false);
+            onToast("Thema angelegt");
+            onReload();
+          }}
+        />
       )}
 
-      <Panel title="Massnahmen" icon={<AlertTriangle size={18} />}>
-        <ActionTable actions={actions} records={records} permissions={permissions} onReload={onReload} />
-      </Panel>
+      {selected && (
+        <RecordDetail
+          record={selected}
+          permissions={permissions}
+          onClose={() => setDetail(null)}
+          onChanged={(message) => {
+            onToast(message);
+            onReload();
+          }}
+        />
+      )}
+
+      <ConfirmDialog
+        open={confirm !== null}
+        title="Compliance-Thema loeschen"
+        busy={remove.busy}
+        body={
+          <p>
+            <strong>{confirm?.title}</strong> wird mit {confirm?.evidence.length ?? 0} Nachweis(en)
+            und {confirm?.actions.length ?? 0} Massnahme(n) entfernt.
+          </p>
+        }
+        onCancel={() => setConfirm(null)}
+        onConfirm={() =>
+          confirm && remove.run(() => apiDelete(`/api/compliance-records/${confirm.id}`))
+        }
+      />
     </section>
   );
 }
 
-function RecordTable({
-  records,
-  selectedId,
-  onSelect,
+/* --------------------------------------------------------------------------
+ * Create, from a template or from scratch
+ * ----------------------------------------------------------------------- */
+
+function CreateRecordDialog({
+  bootstrap,
+  onClose,
+  onSaved,
 }: {
-  records: RecordItem[];
-  selectedId: string | null;
-  onSelect: (id: string) => void;
+  bootstrap: Bootstrap;
+  onClose: () => void;
+  onSaved: () => void;
 }) {
-  if (!records.length) return <div className="empty">Keine Eintraege erfasst.</div>;
-  return (
-    <table>
-      <thead>
-        <tr>
-          <th>Status</th>
-          <th>Titel</th>
-          <th>Nachweise</th>
-          <th>Faellig</th>
-        </tr>
-      </thead>
-      <tbody>
-        {records.map((record) => (
-          <tr
-            key={record.id}
-            className={record.id === selectedId ? "selectable active" : "selectable"}
-            onClick={() => onSelect(record.id)}
-          >
-            <td>
-              <Badge state={record.due_state}>{record.priority}</Badge>
-            </td>
-            <td>
-              <strong>{record.title}</strong>
-              <span>
-                {record.category} / {record.status}
+  const [templates, setTemplates] = React.useState<ComplianceTemplate[]>([]);
+  const [picked, setPicked] = React.useState<ComplianceTemplate | null>(null);
+  const [step, setStep] = React.useState<"pick" | "form">("pick");
+  const { error, busy, run } = useSubmit(onSaved);
+  const branchId = bootstrap.branches[0]?.id;
+  const ownerId = bootstrap.users[0]?.id;
+
+  React.useEffect(() => {
+    apiGet<ComplianceTemplate[]>("/api/compliance-templates")
+      .then(setTemplates)
+      .catch(() => setTemplates([]));
+  }, []);
+
+  function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    run(form, async () => {
+      if (!branchId || !ownerId) throw new Error("Niederlassung oder Verantwortlicher fehlt.");
+      await apiPost("/api/compliance-records", {
+        title: data.get("title"),
+        category: data.get("category"),
+        priority: data.get("priority"),
+        status: data.get("status"),
+        control_type: data.get("control_type"),
+        recurrence: data.get("recurrence"),
+        legal_basis: data.get("legal_basis"),
+        due_date: data.get("due_date"),
+        review_date: data.get("review_date") || data.get("due_date"),
+        risk_if_missing: emptyToNull(data.get("risk_if_missing")),
+        branch_id: branchId,
+        owner_user_id: ownerId,
+        tags: [],
+        scope_type: "branch",
+      });
+    });
+  }
+
+  if (step === "pick") {
+    return (
+      <Modal
+        open
+        size="lg"
+        title="Compliance-Thema anlegen"
+        subtitle="Aus dem Katalog der Standardpflichten waehlen - oder frei erfassen."
+        onClose={onClose}
+        footer={
+          <>
+            <button type="button" className="pds-btn pds-btn--outline pds-btn--sm" onClick={onClose}>
+              Abbrechen
+            </button>
+            <span className="ops-spacer" />
+            <button
+              type="button"
+              className="pds-btn pds-btn--outline pds-btn--sm"
+              onClick={() => {
+                setPicked(null);
+                setStep("form");
+              }}
+            >
+              Frei erfassen
+            </button>
+          </>
+        }
+      >
+        <div className="ops-dialog__body">
+          {templates.length === 0 && <EmptyState>Katalog wird geladen...</EmptyState>}
+          {templates.map((template) => (
+            <button
+              key={template.key}
+              type="button"
+              className="pds-selection-card"
+              style={{ textAlign: "left", cursor: "pointer", width: "100%" }}
+              onClick={() => {
+                setPicked(template);
+                setStep("form");
+              }}
+            >
+              <span style={{ minWidth: 0, display: "block" }}>
+                <span className="ops-cell__title">{template.title}</span>
+                <span className="ops-cell__meta">
+                  {template.legal_basis} &middot; {label.recurrence(template.recurrence)} &middot;{" "}
+                  {label.category(template.category)}
+                </span>
               </span>
-            </td>
-            <td>{record.evidence.length}</td>
-            <td>{formatDate(record.due_date)}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+            </button>
+          ))}
+        </div>
+      </Modal>
+    );
+  }
+
+  const today = new Date();
+  const defaultDue = new Date(today.getFullYear(), today.getMonth() + 1, today.getDate())
+    .toISOString()
+    .slice(0, 10);
+
+  return (
+    <Modal
+      open
+      title={picked ? picked.title : "Thema frei erfassen"}
+      subtitle={picked ? "Aus Vorlage - alle Felder bleiben aenderbar." : undefined}
+      onClose={onClose}
+      footer={
+        <>
+          <button
+            type="button"
+            className="pds-btn pds-btn--outline pds-btn--sm"
+            onClick={() => setStep("pick")}
+          >
+            Zurueck
+          </button>
+          <span className="ops-spacer" />
+          <button
+            type="submit"
+            form="record-form"
+            className="pds-btn pds-btn--primary pds-btn--sm"
+            disabled={busy}
+          >
+            {busy ? "Wird gespeichert..." : "Anlegen"}
+          </button>
+        </>
+      }
+    >
+      <form id="record-form" className="ops-dialog__body" onSubmit={submit}>
+        <FormStatus error={error} busy={false} />
+
+        <Fieldset legend="Thema">
+          <Field label="Titel" span>
+            <TextInput name="title" required minLength={3} defaultValue={picked?.title ?? ""} />
+          </Field>
+          <Field label="Rechtsgrundlage" span>
+            <TextInput
+              name="legal_basis"
+              required
+              minLength={2}
+              defaultValue={picked?.legal_basis ?? ""}
+            />
+          </Field>
+          <div className="ops-grid">
+            <Field label="Kategorie">
+              <Select name="category" defaultValue={picked?.category ?? "training_instruction"}>
+                {options.category.map(([value, text]) => (
+                  <option key={value} value={value}>
+                    {text}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Art der Kontrolle">
+              <Select name="control_type" defaultValue={picked?.control_type ?? "training"}>
+                {options.controlType.map(([value, text]) => (
+                  <option key={value} value={value}>
+                    {text}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Prioritaet">
+              <Select name="priority" defaultValue={picked?.priority ?? "high"}>
+                {options.priority.map(([value, text]) => (
+                  <option key={value} value={value}>
+                    {text}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Status">
+              <Select name="status" defaultValue="open">
+                {options.status.map(([value, text]) => (
+                  <option key={value} value={value}>
+                    {text}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Wiederholung">
+              <Select name="recurrence" defaultValue={picked?.recurrence ?? "yearly"}>
+                {options.recurrence.map(([value, text]) => (
+                  <option key={value} value={value}>
+                    {text}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Faellig">
+              <TextInput type="date" name="due_date" required defaultValue={defaultDue} />
+            </Field>
+          </div>
+        </Fieldset>
+
+        <Fieldset legend="Risiko">
+          <Field label="Was passiert, wenn der Nachweis fehlt" span>
+            <TextArea name="risk_if_missing" defaultValue={picked?.risk_if_missing ?? ""} />
+          </Field>
+        </Fieldset>
+      </form>
+    </Modal>
   );
 }
+
+/* --------------------------------------------------------------------------
+ * Detail: evidence, actions and review together
+ * ----------------------------------------------------------------------- */
 
 function RecordDetail({
   record,
   permissions,
-  onReload,
+  onClose,
+  onChanged,
 }: {
   record: RecordItem;
   permissions: string[];
-  onReload: () => void;
+  onClose: () => void;
+  onChanged: (message: string) => void;
 }) {
   const mayWrite = can(permissions, "compliance:write");
   const mayRunAgent = can(permissions, "agent:run");
-  const remove = useAction(onReload);
 
   return (
-    <Panel
+    <Modal
+      open
+      size="lg"
       title={record.title}
-      icon={<ClipboardCheck size={18} />}
-      actions={
-        mayWrite ? (
-          <DeleteButton
-            label="Record loeschen"
-            confirmText={`"${record.title}" mit allen Nachweisen und Massnahmen loeschen?`}
-            onConfirm={() => remove.run(() => apiDelete(`/api/compliance-records/${record.id}`))}
-          />
-        ) : undefined
+      subtitle={`${label.category(record.category)} · ${record.legal_basis}`}
+      onClose={onClose}
+      footer={
+        <>
+          <Pill tone={toneOf(record.due_state)}>{label.status(record.status)}</Pill>
+          <span className="pds-meta">faellig {formatDate(record.due_date)}</span>
+          <span className="ops-spacer" />
+          <button type="button" className="pds-btn pds-btn--outline pds-btn--sm" onClick={onClose}>
+            Schliessen
+          </button>
+        </>
       }
     >
-      <FormStatus error={remove.error} busy={remove.busy} busyLabel="Wird geloescht..." />
-      <dl>
-        <dt>Rechtsgrundlage</dt>
-        <dd>{record.legal_basis}</dd>
-        <dt>Wiederholung</dt>
-        <dd>{(record as RecordItem & { recurrence?: string }).recurrence || "-"}</dd>
-        <dt>Risiko</dt>
-        <dd>{record.risk_if_missing || "-"}</dd>
-      </dl>
+      <div className="ops-dialog__body">
+        {record.evidence.length === 0 && (
+          <div className="pds-banner pds-banner--warn">
+            <TriangleAlert size={15} />
+            Kein Nachweis hinterlegt &ndash; bei einer Besichtigung ist der Punkt damit nicht
+            belegbar.
+          </div>
+        )}
 
-      <h3>Nachweise</h3>
-      <EvidenceList evidence={record.evidence} mayWrite={mayWrite} onReload={onReload} />
-      {mayWrite && <EvidenceUploadForm recordId={record.id} onUploaded={onReload} />}
+        <dl className="ops-facts">
+          <dt>Prioritaet</dt>
+          <dd>{label.priority(record.priority)}</dd>
+          <dt>Art der Kontrolle</dt>
+          <dd>{label.controlType(record.control_type)}</dd>
+          <dt>Wiederholung</dt>
+          <dd>{label.recurrence(record.recurrence)}</dd>
+          <dt>Review</dt>
+          <dd>{formatDate(record.review_date)}</dd>
+          <dt>Risiko</dt>
+          <dd>{record.risk_if_missing || "-"}</dd>
+        </dl>
 
-      {mayRunAgent && <AgentReview recordId={record.id} />}
-    </Panel>
+        <EvidenceList evidence={record.evidence} mayWrite={mayWrite} onChanged={onChanged} />
+        {mayWrite && <EvidenceUploadForm recordId={record.id} onUploaded={() => onChanged("Nachweis hochgeladen")} />}
+
+        <RecordActions record={record} mayWrite={mayWrite} onChanged={onChanged} />
+
+        {mayRunAgent && <AgentReview recordId={record.id} />}
+      </div>
+    </Modal>
   );
 }
+
+const EVIDENCE_COLUMNS = "minmax(0,1.8fr) 110px 90px 140px";
 
 function EvidenceList({
   evidence,
   mayWrite,
-  onReload,
+  onChanged,
 }: {
   evidence: Evidence[];
   mayWrite: boolean;
-  onReload: () => void;
+  onChanged: (message: string) => void;
 }) {
-  const remove = useAction(onReload);
+  const remove = useAction(() => onChanged("Nachweis geloescht"));
   const [downloadError, setDownloadError] = React.useState<string | null>(null);
 
-  if (!evidence.length) return <div className="empty">Noch keine Nachweise hochgeladen.</div>;
   return (
-    <>
-      <FormStatus error={remove.error || downloadError} busy={remove.busy} busyLabel="Wird geloescht..." />
-      <table>
-        <thead>
-          <tr>
-            <th>Datei</th>
-            <th>Art</th>
-            <th>Groesse</th>
-            <th>Gueltig bis</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {evidence.map((item) => (
-            <tr key={item.id}>
-              <td>
-                <strong>{item.file_name}</strong>
-                <span>{item.description || formatDate(item.uploaded_at)}</span>
-              </td>
-              <td>{item.evidence_type}</td>
-              <td>{formatBytes(item.file_size_bytes)}</td>
-              <td>{formatDate((item as Evidence & { valid_until?: string | null }).valid_until)}</td>
-              <td className="rowActions">
+    <div>
+      <h3 className="pds-label pds-label--micro" style={{ marginBottom: 8 }}>
+        Nachweise
+      </h3>
+      <FormStatus
+        error={remove.error || downloadError}
+        busy={remove.busy}
+        busyLabel="Wird geloescht..."
+      />
+      <Table
+        columns={EVIDENCE_COLUMNS}
+        minWidth={560}
+        head={["Datei", "Art", "Groesse", ""]}
+        empty="Noch keine Nachweise hochgeladen."
+      >
+        {evidence.map((item) => (
+          <Row key={item.id} columns={EVIDENCE_COLUMNS}>
+            <TitleCell title={item.file_name} meta={item.description || formatDate(item.uploaded_at)} />
+            <Cell>
+              <span className="pds-meta">{item.evidence_type}</span>
+            </Cell>
+            <Cell>
+              <span className="ops-date">{formatBytes(item.file_size_bytes)}</span>
+            </Cell>
+            <ActionCell>
+              <button
+                type="button"
+                className="pds-btn pds-btn--outline pds-btn--sm"
+                onClick={() =>
+                  downloadFile(`/api/evidence/${item.id}/download`, item.file_name).catch((caught) =>
+                    setDownloadError(caught instanceof Error ? caught.message : "Download fehlgeschlagen")
+                  )
+                }
+              >
+                <Download size={14} /> Laden
+              </button>
+              {mayWrite && (
                 <button
                   type="button"
-                  onClick={() =>
-                    downloadFile(`/api/evidence/${item.id}/download`, item.file_name).catch((caught) =>
-                      setDownloadError(caught instanceof Error ? caught.message : "Download fehlgeschlagen")
-                    )
-                  }
+                  className="pds-icon-btn pds-icon-btn--danger"
+                  aria-label={`${item.file_name} loeschen`}
+                  onClick={() => remove.run(() => apiDelete(`/api/evidence/${item.id}`))}
                 >
-                  <Download size={14} /> Laden
+                  <Trash2 size={14} />
                 </button>
-                {mayWrite && (
-                  <DeleteButton
-                    label="Loeschen"
-                    confirmText={`Nachweis "${item.file_name}" loeschen?`}
-                    onConfirm={() => remove.run(() => apiDelete(`/api/evidence/${item.id}`))}
-                  />
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </>
+              )}
+            </ActionCell>
+          </Row>
+        ))}
+      </Table>
+    </div>
   );
 }
 
@@ -232,27 +605,86 @@ function EvidenceUploadForm({ recordId, onUploaded }: { recordId: string; onUplo
   }
 
   return (
-    <form className="form inline" onSubmit={submit}>
-      <h3>
-        <FileUp size={16} /> Nachweis hochladen
-      </h3>
-      <div className="formGrid">
-        <input name="file" type="file" required />
-        <select name="evidence_type" defaultValue="certificate">
-          <option value="certificate">Zertifikat</option>
-          <option value="protocol">Protokoll</option>
-          <option value="photo">Foto</option>
-          <option value="other">Sonstiges</option>
-        </select>
-        <label>
-          Gueltig bis
-          <input name="valid_until" type="date" />
-        </label>
+    <form onSubmit={submit} style={{ display: "grid", gap: 10 }}>
+      <div className="ops-grid ops-grid--three">
+        <Field label="Datei">
+          <TextInput type="file" name="file" required />
+        </Field>
+        <Field label="Art">
+          <Select name="evidence_type" defaultValue="certificate">
+            <option value="certificate">Zertifikat</option>
+            <option value="protocol">Protokoll</option>
+            <option value="photo">Foto</option>
+            <option value="other">Sonstiges</option>
+          </Select>
+        </Field>
+        <Field label="Gueltig bis">
+          <TextInput type="date" name="valid_until" />
+        </Field>
       </div>
-      <input name="description" placeholder="Beschreibung" />
+      <Field label="Beschreibung">
+        <TextInput name="description" />
+      </Field>
       <FormStatus error={error} busy={busy} busyLabel="Wird hochgeladen..." />
-      <button disabled={busy}>Hochladen</button>
+      <div>
+        <button type="submit" className="pds-btn pds-btn--outline pds-btn--sm" disabled={busy}>
+          <FileUp size={14} /> Nachweis hochladen
+        </button>
+      </div>
     </form>
+  );
+}
+
+/** Actions belonging to this record - shown where they arose. */
+function RecordActions({
+  record,
+  mayWrite,
+  onChanged,
+}: {
+  record: RecordItem;
+  mayWrite: boolean;
+  onChanged: (message: string) => void;
+}) {
+  const update = useAction(() => onChanged("Massnahme aktualisiert"));
+  const columns = "104px minmax(0,2fr) 110px 120px";
+
+  return (
+    <div>
+      <h3 className="pds-label pds-label--micro" style={{ marginBottom: 8 }}>
+        Massnahmen zu diesem Thema
+      </h3>
+      <FormStatus error={update.error} busy={update.busy} busyLabel="Wird aktualisiert..." />
+      <Table
+        columns={columns}
+        minWidth={520}
+        head={["Status", "Massnahme", "Faellig", ""]}
+        empty="Keine Massnahmen erfasst."
+      >
+        {record.actions.map((action) => (
+          <Row key={action.id} columns={columns}>
+            <Cell>
+              <Pill tone={toneOf(action.due_state)}>{label.status(action.status)}</Pill>
+            </Cell>
+            <TitleCell title={action.title} meta={label.priority(action.priority)} />
+            <Cell>
+              <DueDate value={action.due_date} />
+            </Cell>
+            <ActionCell>
+              {mayWrite && action.status !== "done" && (
+                <button
+                  type="button"
+                  className="pds-btn pds-btn--outline pds-btn--sm"
+                  disabled={update.busy}
+                  onClick={() => update.run(() => apiPatch(`/api/actions/${action.id}`, { status: "done" }))}
+                >
+                  Erledigt
+                </button>
+              )}
+            </ActionCell>
+          </Row>
+        ))}
+      </Table>
+    </div>
   );
 }
 
@@ -270,193 +702,95 @@ function AgentReview({ recordId }: { recordId: string }) {
   const latest = runs[0];
 
   return (
-    <div className="stack">
-      <h3>
-        <Sparkles size={16} /> Hermes-Review
+    <div>
+      <h3 className="pds-label pds-label--micro" style={{ marginBottom: 8 }}>
+        Hermes-Review
       </h3>
       <FormStatus error={error} busy={busy} busyLabel="Review laeuft..." />
       <button
         type="button"
+        className="pds-btn pds-btn--outline pds-btn--sm"
         disabled={busy}
         onClick={() => run(() => apiPost("/api/agent/compliance-review", { compliance_record_id: recordId }))}
       >
-        Review starten
+        <Sparkles size={14} /> Review starten
       </button>
-      {latest ? (
-        <div className="agentRun">
-          <Badge state={latest.status === "completed" ? "green" : "red"}>{latest.status}</Badge>
-          <span>{formatDate(latest.created_at)}</span>
-          <pre>{JSON.stringify(latest.response_payload, null, 2)}</pre>
+      {latest && (
+        <div style={{ marginTop: 10 }}>
+          <div className="ops-row">
+            <Pill tone={latest.status === "completed" ? "ok" : "danger"}>{latest.status}</Pill>
+            <span className="pds-meta">{formatDate(latest.created_at)}</span>
+          </div>
+          <pre className="ops-code" style={{ marginTop: 8 }}>
+            {JSON.stringify(latest.response_payload, null, 2)}
+          </pre>
         </div>
-      ) : (
-        <div className="empty">Noch kein Review durchgefuehrt.</div>
       )}
     </div>
   );
 }
 
-function CreateRecordForm({ bootstrap, onCreated }: { bootstrap: Bootstrap; onCreated: () => void }) {
-  const { error, busy, run } = useSubmit(onCreated);
-  const branchId = bootstrap.branches[0]?.id;
-  const ownerId = bootstrap.users[0]?.id;
-
-  function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const data = new FormData(form);
-    run(form, async () => {
-      if (!branchId || !ownerId) throw new Error("Niederlassung oder Verantwortlicher fehlt.");
-      await apiPost("/api/compliance-records", {
-        title: data.get("title"),
-        category: data.get("category"),
-        priority: data.get("priority"),
-        status: data.get("status"),
-        control_type: data.get("control_type"),
-        recurrence: data.get("recurrence"),
-        legal_basis: data.get("legal_basis"),
-        due_date: data.get("due_date"),
-        review_date: data.get("review_date"),
-        risk_if_missing: emptyToNull(data.get("risk_if_missing")),
-        branch_id: branchId,
-        owner_user_id: ownerId,
-        tags: [],
-        scope_type: "branch",
-      });
-    });
-  }
-
-  return (
-    <form className="form" onSubmit={submit}>
-      <h2>Compliance-Thema erfassen</h2>
-      <input name="title" placeholder="Titel" required minLength={3} />
-      <div className="formGrid">
-        <select name="category" defaultValue="training_instruction">
-          <option value="training_instruction">Unterweisung</option>
-          <option value="risk_assessment">Gefaehrdungsbeurteilung</option>
-          <option value="tools_and_equipment_inspection">DGUV / Arbeitsmittel</option>
-          <option value="first_aid">Erste Hilfe</option>
-          <option value="occupational_health">Arbeitsmedizin</option>
-          <option value="electrical_safety">Elektrosicherheit</option>
-          <option value="documentation">Dokumentation</option>
-        </select>
-        <select name="priority" defaultValue="high">
-          <option>low</option>
-          <option>medium</option>
-          <option>high</option>
-          <option>critical</option>
-        </select>
-        <select name="status" defaultValue="open">
-          <option>open</option>
-          <option>in_progress</option>
-          <option>compliant</option>
-          <option>non_compliant</option>
-        </select>
-        <select name="control_type" defaultValue="training">
-          <option>document</option>
-          <option>training</option>
-          <option>inspection</option>
-          <option>medical</option>
-          <option>process</option>
-          <option>incident</option>
-          <option>approval</option>
-        </select>
-        <label>
-          Wiederholung
-          <select name="recurrence" defaultValue="yearly">
-            <option value="one_time">einmalig</option>
-            <option value="monthly">monatlich</option>
-            <option value="quarterly">quartalsweise</option>
-            <option value="yearly">jaehrlich</option>
-            <option value="event_based">anlassbezogen</option>
-          </select>
-        </label>
-      </div>
-      <input name="legal_basis" placeholder="Rechtsgrundlage" required minLength={2} />
-      <div className="formGrid">
-        <label>
-          Faellig
-          <input name="due_date" type="date" required />
-        </label>
-        <label>
-          Review
-          <input name="review_date" type="date" required />
-        </label>
-      </div>
-      <textarea name="risk_if_missing" placeholder="Risiko bei fehlendem Nachweis" />
-      <FormStatus error={error} busy={busy} />
-      <button disabled={busy}>Speichern</button>
-    </form>
-  );
-}
-
+/** All open actions across records, as a follow-up list. */
 function ActionTable({
   actions,
   records,
-  permissions,
+  mayWrite,
   onReload,
 }: {
   actions: Action[];
   records: RecordItem[];
-  permissions: string[];
+  mayWrite: boolean;
   onReload: () => void;
 }) {
   const update = useAction(onReload);
-  const mayWrite = can(permissions, "compliance:write");
 
-  if (!actions.length) return <div className="empty">Keine offenen Massnahmen erfasst.</div>;
   return (
     <>
       <FormStatus error={update.error} busy={update.busy} busyLabel="Wird aktualisiert..." />
-      <table>
-        <thead>
-          <tr>
-            <th>Status</th>
-            <th>Massnahme</th>
-            <th>Record</th>
-            <th>Eskalation</th>
-            <th>Faellig</th>
-            {mayWrite && <th />}
-          </tr>
-        </thead>
-        <tbody>
-          {actions.map((action) => (
-            <tr key={action.id}>
-              <td>
-                <Badge state={action.due_state}>{action.status}</Badge>
-              </td>
-              <td>
-                <strong>{action.title}</strong>
-                <span>{action.priority}</span>
-              </td>
-              <td>{records.find((record) => record.id === action.compliance_record_id)?.title || action.compliance_record_id}</td>
-              <td>{(action as Action & { escalation_level?: number }).escalation_level ?? 0}</td>
-              <td>{formatDate(action.due_date)}</td>
+      <Table
+        columns={ACTION_COLUMNS}
+        head={["Status", "Massnahme", "Thema", "Faellig", ""]}
+        empty="Keine offenen Massnahmen."
+      >
+        {actions.map((action) => (
+          <Row key={action.id} columns={ACTION_COLUMNS}>
+            <Cell>
+              <Pill tone={toneOf(action.due_state)}>{label.status(action.status)}</Pill>
+            </Cell>
+            <TitleCell title={action.title} meta={label.priority(action.priority)} />
+            <Cell>
+              <span className="pds-meta">
+                {records.find((record) => record.id === action.compliance_record_id)?.title ?? "-"}
+              </span>
+            </Cell>
+            <Cell>
+              <DueDate value={action.due_date} />
+            </Cell>
+            <ActionCell>
               {mayWrite && (
-                <td className="rowActions">
-                  {action.status !== "done" && (
-                    <button
-                      type="button"
-                      disabled={update.busy}
-                      onClick={() =>
-                        update.run(async () => {
-                          await apiPatch(`/api/actions/${action.id}`, { status: "done" });
-                        })
-                      }
-                    >
-                      Erledigt
-                    </button>
-                  )}
-                  <DeleteButton
-                    label="Loeschen"
-                    confirmText={`Massnahme "${action.title}" loeschen?`}
-                    onConfirm={() => update.run(() => apiDelete(`/api/actions/${action.id}`))}
-                  />
-                </td>
+                <>
+                  <button
+                    type="button"
+                    className="pds-btn pds-btn--outline pds-btn--sm"
+                    disabled={update.busy}
+                    onClick={() => update.run(() => apiPatch(`/api/actions/${action.id}`, { status: "done" }))}
+                  >
+                    Erledigt
+                  </button>
+                  <button
+                    type="button"
+                    className="pds-icon-btn pds-icon-btn--danger"
+                    aria-label={`${action.title} loeschen`}
+                    onClick={() => update.run(() => apiDelete(`/api/actions/${action.id}`))}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </>
               )}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+            </ActionCell>
+          </Row>
+        ))}
+      </Table>
     </>
   );
 }

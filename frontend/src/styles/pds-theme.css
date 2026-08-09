@@ -1,0 +1,209 @@
+/* ==========================================================================
+ * PDS Fokus-Design — Theme (uebertragbar)
+ * --------------------------------------------------------------------------
+ * Quelle der Wahrheit: app/globals.css der ProDoc Suite.
+ * Diese Datei ist die portable Fassung: alle Tokens liegen direkt auf
+ * :root (kein html[data-design="fokus"]-Scope), damit ein anderes Projekt
+ * sie ohne Umschalt-Logik uebernehmen kann.
+ *
+ * Einbinden:
+ *   @import "./pds-theme.css";        (vor eigenen Styles)
+ *   @import "./pds-components.css";   (optional, fertige Bausteine)
+ *
+ * Reihenfolge bei Tailwind v4:
+ *   @import "tailwindcss";
+ *   @import "./pds-theme.css";
+ * ========================================================================== */
+
+:root {
+  /* --- Marke: B.Schmitt-Azur ------------------------------------------- */
+  /* --pds-brand ist der Signalton (CTA in dunklen Leisten, Fokusringe),
+     --pds-brand-strong der kontraststarke Ton fuer Buttons auf Weiss. */
+  --pds-brand: #009de0;
+  --pds-brand-strong: #0080b8;
+  --pds-brand-strong-hover: #006a99;
+  --pds-brand-light: #33b1e6;
+
+  /* Azur-Tints: aktive Zustaende, Auswahl, ruhige Hintergrundflaechen */
+  --pds-tint: #e0f2fc;
+  --pds-tint-border: #bde3f5;
+  --pds-tint-border-strong: #7fcbed;
+  --pds-tint-bg: #f0f9fe;
+  --pds-tint-bg-2: #f6fbfe;
+  --pds-tint-bg-3: #f0f7fb;
+
+  /* --- Text und dunkle Flaechen ---------------------------------------- */
+  --pds-navy: #071f30;
+  --pds-text: #0f1b26;
+  --pds-text-2: #33424f;
+  --pds-text-3: #46586a;
+  --pds-muted: #71808f;
+  --pds-placeholder: #9aaab8;
+
+  /* --- Flaechen --------------------------------------------------------- */
+  --pds-app-bg: #f6f8fa;
+  --pds-surface: #ffffff;
+  --pds-row-hover: #f6fbfe;
+  --pds-segment-bg: #e2e8ee;
+  --pds-field-muted: #f0f4f7;
+
+  /* --- Borders ---------------------------------------------------------- */
+  --pds-border: #e2e8ee;
+  --pds-border-input: #d5dde4;
+  --pds-border-row: #edf1f5;
+  --pds-border-dashed: #b9c5cf;
+
+  /* --- Status ----------------------------------------------------------- */
+  /* gruen = fertig/laeuft, amber = unvollstaendig/Handlungsbedarf,
+     rot = Fehler/destruktiv, azur = aktiv/ausgewaehlt */
+  --pds-success: #1f8a5b;
+  --pds-success-bg: #e5f3ed;
+  --pds-success-text: #14603f;
+  --pds-amber: #d9822b;
+  --pds-amber-bg: #fef3e2;
+  --pds-amber-text: #92580b;
+  --pds-warn-border: #e0a857;
+  --pds-warn-bg: #fffdf8;
+  --pds-warn-bg-2: #f2d9b8;
+  --pds-danger: #b3261e;
+  --pds-danger-bg: rgba(220, 38, 38, 0.08);
+
+  --pds-toggle-on: #0080b8;
+  --pds-toggle-off: #c6d0d9;
+  --pds-overlay: rgba(7, 31, 48, 0.45);
+
+  /* --- Schatten (sparsam einsetzen) ------------------------------------- */
+  --pds-shadow-segment: 0 1px 2px rgba(7, 31, 48, 0.1);
+  --pds-shadow-position: 0 4px 16px rgba(0, 157, 224, 0.12);
+  --pds-shadow-dropdown: 0 12px 32px rgba(7, 31, 48, 0.14);
+  --pds-shadow-modal: 0 32px 80px rgba(7, 31, 48, 0.35);
+  --pds-shadow-sheet: 0 8px 30px rgba(7, 31, 48, 0.14);
+
+  /* --- Radien ------------------------------------------------------------ */
+  --pds-radius-xs: 6px; /* kleine Controls */
+  --pds-radius-sm: 8px; /* Buttons, Inputs, Zeilen, Segmente */
+  --pds-radius-md: 12px; /* Tabellen-Container */
+  --pds-radius-lg: 14px; /* Abschnittskarten, Modals */
+
+  /* --- Layout ------------------------------------------------------------ */
+  --pds-content-max: 1360px; /* Listen-/Hub-Seiten */
+  --pds-editor-max: 1180px; /* Editor mit Stepper */
+  --pds-topbar-height: 53px;
+
+  /* --- Schrift ----------------------------------------------------------- */
+  /* --font-archivo / --font-ibm-plex-mono werden von next/font gesetzt.
+     Ohne next/font greifen die Literalnamen (z. B. via Google-Fonts-Link). */
+  --pds-font-ui: var(--font-archivo, "Archivo"), Arial, Helvetica, sans-serif;
+  --pds-font-mono: var(--font-ibm-plex-mono, "IBM Plex Mono"), ui-monospace,
+    "SFMono-Regular", "Menlo", "Consolas", monospace;
+}
+
+/* ==========================================================================
+ * Optional: Mapping auf shadcn/ui-Semantiktokens.
+ * Nur noetig, wenn das Zielprojekt shadcn/ui (oder Tailwinds
+ * bg-primary / text-muted-foreground / border-border …) nutzt. Damit faerbt
+ * sich der komplette bestehende Komponentenbestand automatisch um.
+ * ========================================================================== */
+
+:root {
+  --background: var(--pds-app-bg);
+  --foreground: var(--pds-text);
+  --card: var(--pds-surface);
+  --card-foreground: var(--pds-text);
+  --popover: var(--pds-surface);
+  --popover-foreground: var(--pds-text);
+  --primary: var(--pds-brand-strong);
+  --primary-foreground: #ffffff;
+  --secondary: var(--pds-segment-bg);
+  --secondary-foreground: var(--pds-text-2);
+  --muted: var(--pds-field-muted);
+  --muted-foreground: var(--pds-muted);
+  --accent: var(--pds-tint);
+  --accent-foreground: var(--pds-brand-strong-hover);
+  --destructive: var(--pds-danger);
+  --border: var(--pds-border);
+  --input: var(--pds-border-input);
+  --ring: var(--pds-brand);
+  --radius: 0.5rem;
+  --sidebar: var(--pds-surface);
+  --sidebar-foreground: var(--pds-text);
+  --sidebar-primary: var(--pds-brand-strong);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: var(--pds-tint);
+  --sidebar-accent-foreground: var(--pds-brand-strong-hover);
+  --sidebar-border: var(--pds-border);
+  --sidebar-ring: var(--pds-brand);
+}
+
+/* ==========================================================================
+ * Basis. Bewusst minimal — das Design lebt von den Bausteinen, nicht von
+ * globalen Resets.
+ * ========================================================================== */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  background: var(--pds-app-bg);
+}
+
+html {
+  font-family: var(--pds-font-ui);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--pds-text);
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+/* Zahlen, Nummern, Preise, Dateinamen, Zeitstempel: immer Mono. */
+.pds-mono,
+[data-mono] {
+  font-family: var(--pds-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ==========================================================================
+ * Tailwind v4: Tokens als Utility-Farben verfuegbar machen (optional).
+ * In die eigene CSS-Entry-Datei kopieren, nicht importieren.
+ * --------------------------------------------------------------------------
+ * @theme inline {
+ *   --font-sans: var(--pds-font-ui);
+ *   --font-mono: var(--pds-font-mono);
+ *   --color-background: var(--background);
+ *   --color-foreground: var(--foreground);
+ *   --color-card: var(--card);
+ *   --color-primary: var(--primary);
+ *   --color-primary-foreground: var(--primary-foreground);
+ *   --color-muted: var(--muted);
+ *   --color-muted-foreground: var(--muted-foreground);
+ *   --color-accent: var(--accent);
+ *   --color-accent-foreground: var(--accent-foreground);
+ *   --color-destructive: var(--destructive);
+ *   --color-border: var(--border);
+ *   --color-input: var(--input);
+ *   --color-ring: var(--ring);
+ *   --radius-sm: calc(var(--radius) * 0.6);
+ *   --radius-md: calc(var(--radius) * 0.8);
+ *   --radius-lg: var(--radius);
+ *   --radius-xl: calc(var(--radius) * 1.4);
+ * }
+ * ========================================================================== */

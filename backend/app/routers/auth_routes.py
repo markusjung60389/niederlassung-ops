@@ -35,6 +35,15 @@ def dev_users(db: Session = Depends(get_db)) -> list[schemas.DevUserRead]:
     users = db.scalars(
         select(models.User).where(models.User.is_active.is_(True)).order_by(models.User.display_name.asc())
     ).all()
+    # The frontend picks the first entry when no identity has been chosen yet.
+    # Alphabetically that is the read-only viewer, so the application opened
+    # with every action hidden and looked like a broken build. Widest
+    # permissions first; the name still orders within a role.
+    def breadth(user: models.User) -> int:
+        permissions = user.role.permissions if user.role else []
+        return -1000 if permissions and permissions[0] == "*" else -len(permissions)
+
+    users.sort(key=breadth)
     return [
         schemas.DevUserRead(
             id=user.id, display_name=user.display_name, role_name=user.role.name if user.role else None
