@@ -47,6 +47,8 @@ PERMISSION_CATALOGUE: list[tuple[str, str, str, str]] = [
     (permissions.BRANCH_WRITE, "Niederlassungen", "Niederlassungen verwalten", "Standorte anlegen, umbenennen, stilllegen."),
     (permissions.USER_READ, "Verwaltung", "Benutzer lesen", "Konten, Rollen und Zuordnungen einsehen."),
     (permissions.USER_WRITE, "Verwaltung", "Benutzer verwalten", "Konten anlegen, Rollen vergeben, Passwoerter setzen."),
+    (permissions.SALARY_READ, "Entgelt", "Entgelt lesen", "Gehaelter einsehen. Verlangt zusaetzlich eine Bestaetigung per Microsoft-Anmeldung."),
+    (permissions.SALARY_WRITE, "Entgelt", "Entgelt pflegen", "Gehaelter erfassen und aendern. Jeder Zugriff wird protokolliert."),
     (permissions.AUDIT_READ, "Verwaltung", "Protokoll lesen", "Das Aenderungsprotokoll einsehen."),
     (permissions.AGENT_RUN, "Verwaltung", "Assistent nutzen", "Auswertungen ueber den Hermes-Assistenten anstossen."),
     (permissions.SALES_READ, "Vertrieb", "Vertrieb lesen", "Kunden und Chancen ueber die API einsehen."),

@@ -31,6 +31,10 @@ BRANCH_WRITE = "branch:write"
 # only: whoever may hand out permissions can hand out every other permission.
 USER_READ = "user:read"
 USER_WRITE = "user:write"
+# Pay data. Held by nobody through a preset except the two wildcard roles, and
+# guarded a second time by a step-up: the permission alone is not enough.
+SALARY_READ = "salary:read"
+SALARY_WRITE = "salary:write"
 
 ALL_PERMISSIONS = (
     COMPLIANCE_READ,
@@ -53,13 +57,17 @@ ALL_PERMISSIONS = (
     BRANCH_WRITE,
     USER_READ,
     USER_WRITE,
+    SALARY_READ,
+    SALARY_WRITE,
 )
 
-# The read set a viewer gets. `user:read` is deliberately not in it: the
-# account directory with roles and branch assignments is administration, not
-# something every reader needs.
+# The read set a viewer gets. `user:read` and `salary:read` are deliberately
+# not in it: the account directory is administration, and pay is nobody's
+# business by default - not even read-only.
 READ_PERMISSIONS = tuple(
-    item for item in ALL_PERMISSIONS if item.endswith(":read") and item != USER_READ
+    item
+    for item in ALL_PERMISSIONS
+    if item.endswith(":read") and item not in {USER_READ, SALARY_READ}
 )
 
 ROLE_ADMIN = "Administrator"

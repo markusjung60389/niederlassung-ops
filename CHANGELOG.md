@@ -7,6 +7,15 @@ Versionierung nach [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Hinzugefuegt
 
+- **Entgeltdaten je Mitarbeiter**, in einer eigenen Tabelle und hinter drei
+  Schranken: der Berechtigung `salary:read` / `salary:write` (in keiner
+  Standardrolle ausser den beiden Wildcard-Rollen), einer **zweiten
+  Bestaetigung ueber Entra ID** (Authentifizierungskontext per bedingtem
+  Zugriff, mit `amr`/`auth_time` als Rueckfall ohne P1-Lizenz) und einem
+  Protokoll, das auch jeden **Lese**zugriff festhaelt. Der Betrag selbst steht
+  nie im Protokoll. Ueber den Notfallzugang mit Passwort sind Entgeltdaten gar
+  nicht erreichbar. Beschrieben in
+  [`docs/benutzerverwaltung.md`](docs/benutzerverwaltung.md).
 - **Benutzerverwaltung und Berechtigungssystem.** Konten, Rollen und
   Niederlassungszuordnung sind jetzt in der Oberflaeche pflegbar; beschrieben in
   [`docs/benutzerverwaltung.md`](docs/benutzerverwaltung.md).

@@ -125,6 +125,66 @@ Standortzuordnungen ist Verwaltung, nicht Lesestoff fuer alle.
 - **Passwort setzen** ist der Weg zurueck nach einer Aussperrung. Es ist immer
   ein Startpasswort und im Protokoll steht nur, *dass* es gesetzt wurde.
 
+## Entgeltdaten: Berechtigung, zweiter Faktor, Leseprotokoll
+
+Gehaelter liegen in einer eigenen Tabelle (`employee_salaries`) und hinter einem
+eigenen Endpunkt - **nicht** als Spalte im Mitarbeiterprofil. Das Profil reist
+in jeder Mitarbeiterantwort mit; ein Feld, das niemals versehentlich
+mitgeschickt werden darf, gehoert nicht in eine Nutzlast, die fuer etwas
+anderes gebaut wurde.
+
+Drei Schranken, die verschiedene Aufgaben haben:
+
+| Schranke | Beantwortet |
+| --- | --- |
+| `salary:read` / `salary:write` | Wer darf ueberhaupt hinsehen |
+| Step-up (zweiter Faktor) | Wie sicher ist es, dass er es *jetzt gerade* ist |
+| Protokoll **jedes Lesezugriffs** | Wer hat hineingesehen |
+
+Die dritte ist die, die bei Entgeltdaten am haeufigsten gebraucht wird. Das
+uebrige Protokoll haelt nur Aenderungen fest; hier wird auch das blosse Ansehen
+vermerkt. **Der Betrag steht nie im Protokoll** - das Protokoll liest jeder mit
+`audit:read`, und dorthin die Zahl zu schreiben hiesse, sie genau den Leuten zu
+geben, vor denen der Endpunkt sie schuetzt.
+
+Keine der fuenf Standardrollen bringt `salary:read` mit, ausser den beiden
+Wildcard-Rollen (Administrator, Bereichsleiter). Wer sonst Entgelt sehen soll,
+bekommt eine eigene Rolle.
+
+### Der zweite Faktor
+
+Der Regelweg ist der **Authentifizierungskontext von Entra ID**:
+
+1. Im Portal unter *Sicherheit -> Bedingter Zugriff -> Authentifizierungskontext*
+   einen Kontext anlegen, z. B. `c1` mit dem Namen „Entgeltdaten".
+2. Eine Richtlinie fuer bedingten Zugriff auf diesen Kontext anwenden, die
+   Multi-Faktor-Authentifizierung verlangt.
+3. `AZURE_SALARY_AUTH_CONTEXT=c1` setzen (Vorgabe).
+
+Beim Zugriff auf ein Entgeltfeld antwortet die API mit `401` und einem
+Claims-Challenge (`WWW-Authenticate: Bearer error="insufficient_claims"`, und
+derselbe Wert im Antwortkoerper, weil CORS eigene Header sonst verbirgt). MSAL
+fordert damit ein neues Token an, Entra ID verlangt die Bestaetigung, und das
+neue Token traegt `acrs: ["c1"]`. Das staerkere Token bleibt nur im
+Arbeitsspeicher der Seite und wird ausschliesslich fuer Entgeltanfragen
+verwendet.
+
+**Der Authentifizierungskontext braucht Entra ID P1.** Ohne diese Lizenz greift
+ein Rueckfall: das Backend akzeptiert ein Token, dessen `amr`-Claim `mfa`
+enthaelt und dessen `auth_time` hoechstens
+`SALARY_STEP_UP_MAX_AGE_SECONDS` (Vorgabe 15 Minuten) alt ist. Schwaecher, weil
+es keine Bestaetigung *fuer diese eine Handlung* erzwingen kann. Je nach Tenant
+muessen `amr` und `auth_time` in der App-Registrierung als optionale Claims
+aktiviert werden.
+
+**Ueber den Notfallzugang mit Passwort gibt es keinen Zugriff auf
+Entgeltdaten** - unabhaengig von der Rolle. Ein Notfallweg, der auch die
+sensibelsten Daten oeffnet, ist kein Notfallweg mehr.
+
+Im Entwicklungsmodus (`AUTH_MODE=dev`) gilt der Step-up als erfuellt: dort gibt
+es keinen zweiten Faktor zu verlangen, und der Modus ist in Produktion ohnehin
+gesperrt.
+
 ## Was wo liegt
 
 | Zweck | Ort |
@@ -134,5 +194,7 @@ Standortzuordnungen ist Verwaltung, nicht Lesestoff fuer alle.
 | Konten, Rollen, Berechtigungskatalog | `backend/app/routers/users.py` |
 | Aufloesung des Aufrufers je Modus | `backend/app/auth.py` |
 | Berechtigungen und Rollenvorlagen | `backend/app/permissions.py` |
+| Step-up und Claims-Challenge | `backend/app/auth.py` (`requires_step_up`) |
+| Entgelt-Endpunkte | `backend/app/routers/salary.py` |
 | Anmeldebildschirm und Passwortdialog | `frontend/src/components/Login.tsx` |
 | Benutzeroberflaeche der Verwaltung | `frontend/src/views/UsersView.tsx` |

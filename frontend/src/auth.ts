@@ -178,6 +178,43 @@ export async function acquireAccessToken(): Promise<string> {
   }
 }
 
+/* --------------------------------------------------------------------------
+ * Step-up for pay data
+ * ----------------------------------------------------------------------- */
+
+let elevatedToken: { token: string; expiresAt: number } | null = null;
+
+/**
+ * Answers a claims challenge with a stronger token.
+ *
+ * Entra ID runs whatever the Conditional Access policy behind the requested
+ * authentication context demands - in practice a fresh confirmation in the
+ * Authenticator app. The result is kept in memory only: it must not outlive
+ * the tab, and it is never the token the rest of the application uses.
+ */
+export async function elevate(claimsChallenge: string): Promise<void> {
+  const instance = await getMsal();
+  const account = activeAccount(instance);
+  const result = await instance.acquireTokenPopup({
+    scopes: [AZURE_CONFIG.apiScope],
+    account: account ?? undefined,
+    claims: window.atob(claimsChallenge),
+  });
+  elevatedToken = {
+    token: result.accessToken,
+    expiresAt: result.expiresOn ? result.expiresOn.getTime() : Date.now() + 5 * 60_000,
+  };
+}
+
+export function isElevated(): boolean {
+  return elevatedToken !== null && elevatedToken.expiresAt > Date.now();
+}
+
+/** Drops the elevated token, e.g. when the pay section is closed again. */
+export function dropElevation(): void {
+  elevatedToken = null;
+}
+
 export async function signOutAzure(): Promise<void> {
   if (!AZURE_CONFIG.configured || !msalPromise) return;
   const instance = await getMsal();
@@ -189,8 +226,18 @@ export async function signOutAzure(): Promise<void> {
  * Request headers
  * ----------------------------------------------------------------------- */
 
-/** Headers identifying the caller, for every request against the API. */
-export async function getAuthHeaders(): Promise<Record<string, string>> {
+/**
+ * Headers identifying the caller, for every request against the API.
+ *
+ * `elevated` asks for the stronger token obtained through `elevate()`. There is
+ * no fallback to the ordinary one: a request that needs the second
+ * confirmation should be answered with 401 and a challenge, not quietly with
+ * the weaker identity.
+ */
+export async function getAuthHeaders(elevated = false): Promise<Record<string, string>> {
+  if (elevated && isElevated()) {
+    return { Authorization: `Bearer ${(elevatedToken as { token: string }).token}` };
+  }
   const session = getSession();
   if (session) return { Authorization: `Bearer ${session.token}` };
 
@@ -203,6 +250,7 @@ export async function getAuthHeaders(): Promise<Record<string, string>> {
 
 /** Drops every local trace of the signed-in identity. */
 export function forgetIdentity(): void {
+  elevatedToken = null;
   writeStorage(SESSION_STORAGE_KEY, null);
   writeStorage(DEV_USER_STORAGE_KEY, null);
   writeStorage(SIGNED_OUT_KEY, "1");

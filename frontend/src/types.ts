@@ -171,6 +171,18 @@ export type Employee = {
   readiness_by_branch: Record<string, Readiness>;
 };
 
+/** Pay, fetched on its own and only after the extra confirmation. */
+export type Salary = {
+  employee_id: string;
+  amount: number;
+  period: "monthly" | "hourly";
+  hours_per_week?: number | null;
+  valid_from: string;
+  note?: string | null;
+  updated_by?: string | null;
+  updated_at: string;
+};
+
 export type MatrixCell = {
   qualification_type_id: string;
   state: string;

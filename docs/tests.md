@@ -76,6 +76,7 @@ E2E_PYTHON=../backend/.venv/bin/python npm run e2e
 | Datei | Inhalt |
 | --- | --- |
 | `accounts.spec.ts` | Anmeldung mit Passwort, erzwungener Wechsel des Startpassworts, Konten anlegen und deaktivieren, Passwort setzen, eigene Rollen, kein Zugriff ohne `user:read` |
+| `salary.spec.ts` | Entgelt nur mit Berechtigung, erst auf Anforderung geladen, jeder Blick im Protokoll |
 | `branches.spec.ts` | Umschalter und Niederlassung in der URL, Abschottung zwischen Standorten, Portfolio, Ausnahme setzen und widerrufen, Fahrzeug verlegen, Einsatzort, Vorgabe von oertlich auf gruppenweit |
 | `navigation.spec.ts` | Hash-Routing, Deep Link, Zurueck, Neuladen, unbekannte Route, Rollen, Dialogverhalten, kein horizontaler Scroll |
 | `employees.spec.ts` | Tabelle, Anlegen, Bearbeiten, Qualifikation erfassen, Funktionswechsel, Ausscheiden, Loeschen samt Kindschutz |

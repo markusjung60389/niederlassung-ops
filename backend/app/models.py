@@ -1,7 +1,19 @@
 ﻿from datetime import date, datetime, timezone
+from decimal import Decimal
 from uuid import uuid4
 
-from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    JSON,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -225,6 +237,9 @@ class Employee(Base, TimestampMixin):
     branch: Mapped[Branch] = relationship()
     job_role: Mapped[JobRole | None] = relationship(lazy="joined")
     qualifications: Mapped[list["EmployeeQualification"]] = relationship(back_populates="employee")
+    salary: Mapped["EmployeeSalary | None"] = relationship(
+        back_populates="employee", uselist=False
+    )
     profile: Mapped["EmployeeProfile | None"] = relationship(back_populates="employee", uselist=False)
     branch_links: Mapped[list["EmployeeBranch"]] = relationship(
         back_populates="employee", cascade="all, delete-orphan"
@@ -259,6 +274,36 @@ class EmployeeBranch(Base, TimestampMixin):
     note: Mapped[str | None] = mapped_column(Text)
     employee: Mapped["Employee"] = relationship(back_populates="branch_links")
     branch: Mapped[Branch] = relationship(lazy="joined")
+
+
+class EmployeeSalary(Base, TimestampMixin):
+    """Pay, deliberately in a table of its own.
+
+    Not a column on `employee_profiles`: the profile is serialised into every
+    employee response, and a field that must never travel by accident has no
+    business in a payload that is built for something else. Its own table means
+    its own endpoint, its own permission and its own audit trail.
+
+    One row per employee - the current arrangement, not a history. What was
+    paid last year belongs in the payroll system, which is also the system of
+    record for everything here.
+    """
+
+    __tablename__ = "employee_salaries"
+    __table_args__ = (UniqueConstraint("employee_id", name="uq_employee_salaries_employee_id"),)
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    employee_id: Mapped[str] = mapped_column(ForeignKey("employees.id"), nullable=False, index=True)
+    # Numeric, not float: money that is off by a cent because of binary
+    # rounding is money somebody has to explain.
+    amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    # "monthly" is the gross monthly salary, "hourly" the gross hourly rate.
+    period: Mapped[str] = mapped_column(String(20), default="monthly", nullable=False)
+    hours_per_week: Mapped[Decimal | None] = mapped_column(Numeric(4, 1))
+    valid_from: Mapped[date] = mapped_column(Date, nullable=False)
+    note: Mapped[str | None] = mapped_column(Text)
+    updated_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    employee: Mapped["Employee"] = relationship(back_populates="salary")
 
 
 class EmployeeQualification(Base, TimestampMixin):

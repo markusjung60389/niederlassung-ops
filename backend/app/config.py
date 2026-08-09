@@ -59,6 +59,16 @@ class Settings(BaseSettings):
     # Clock skew tolerance for token validation, in seconds.
     azure_leeway_seconds: int = Field(default=60, ge=0, le=300)
 
+    # --- Step-up for pay data ---------------------------------------------
+    # Entra ID authentication context that a Conditional Access policy ties to
+    # MFA (Portal: Sicherheit -> Bedingter Zugriff -> Authentifizierungskontext).
+    # Tokens then carry it in the "acrs" claim; requires Entra ID P1.
+    azure_salary_auth_context: str = "c1"
+    # Fallback where no P1 licence is available: accept a token that was issued
+    # after a multi-factor sign-in no older than this. Weaker than the context,
+    # because it cannot demand a *second* confirmation for this one action.
+    salary_step_up_max_age_seconds: int = Field(default=900, ge=60, le=86400)
+
     # --- Uploads ----------------------------------------------------------
     upload_max_bytes: int = Field(default=25 * 1024 * 1024, ge=1024, le=200 * 1024 * 1024)
     upload_allowed_extensions: str = ".pdf,.png,.jpg,.jpeg,.gif,.webp,.txt,.csv,.doc,.docx,.xls,.xlsx,.odt,.ods,.msg,.eml"

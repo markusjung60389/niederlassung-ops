@@ -171,6 +171,25 @@ class UserUpdate(BaseModel):
     external_id: str | None = None
 
 
+class EmployeeSalaryRead(BaseModel):
+    employee_id: str
+    amount: float
+    period: Literal["monthly", "hourly"]
+    hours_per_week: float | None = None
+    valid_from: date
+    note: str | None = None
+    updated_by: str | None = None
+    updated_at: datetime
+
+
+class EmployeeSalaryWrite(BaseModel):
+    amount: float = Field(gt=0, le=1_000_000)
+    period: Literal["monthly", "hourly"] = "monthly"
+    hours_per_week: float | None = Field(default=None, gt=0, le=80)
+    valid_from: date
+    note: str | None = None
+
+
 class DevUserRead(BaseModel):
     """Selectable identity for AUTH_MODE=dev. Never served in azure_ad mode."""
 

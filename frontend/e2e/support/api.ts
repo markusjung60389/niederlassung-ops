@@ -99,7 +99,7 @@ export function addMonths(isoDate: string, months: number): string {
 
 async function call<T>(
   request: APIRequestContext,
-  method: "post" | "patch" | "get" | "delete",
+  method: "post" | "patch" | "put" | "get" | "delete",
   path: string,
   body?: unknown,
   userId: string = MANAGER
@@ -124,6 +124,8 @@ export const api = {
     call<T>(request, "post", path, body, userId),
   patch: <T>(request: APIRequestContext, path: string, body: unknown, userId?: string) =>
     call<T>(request, "patch", path, body, userId),
+  put: <T>(request: APIRequestContext, path: string, body: unknown, userId?: string) =>
+    call<T>(request, "put", path, body, userId),
   delete: (request: APIRequestContext, path: string, userId?: string) =>
     call<void>(request, "delete", path, undefined, userId),
 };

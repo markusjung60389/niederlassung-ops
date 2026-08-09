@@ -117,6 +117,21 @@ Authorization: Bearer <token>
 Erwartet: `source: "azure-ad"`, der gemappte `role_name` und die Berechtigungsliste.
 `/api/auth/dev-users` liefert unter `azure_ad` bewusst 404.
 
+## Schritt 6: Authentifizierungskontext fuer Entgeltdaten
+
+Nur noetig, wenn Gehaelter gepflegt werden - und nur mit Entra ID P1:
+
+1. *Sicherheit -> Bedingter Zugriff -> Authentifizierungskontext*: Kontext `c1`
+   anlegen, Name z. B. „Entgeltdaten", *Fuer Apps veroeffentlichen* aktivieren.
+2. Eine Richtlinie fuer bedingten Zugriff auf diesen Kontext anwenden, die
+   Multi-Faktor-Authentifizierung verlangt.
+3. `AZURE_SALARY_AUTH_CONTEXT=c1` im Backend setzen (Vorgabe).
+
+Ohne P1 greift der Rueckfall ueber `amr`/`auth_time`; dafuer muessen die beiden
+in der API-App-Registrierung unter *Tokenkonfiguration* als optionale Claims
+aktiviert sein. Einzelheiten in
+[`benutzerverwaltung.md`](benutzerverwaltung.md#entgeltdaten-berechtigung-zweiter-faktor-leseprotokoll).
+
 ## Der Weg zurueck, wenn Entra ID nicht funktioniert
 
 Genau dafuer gibt es die Passwort-Anmeldung. Sie laeuft unabhaengig von

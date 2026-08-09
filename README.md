@@ -8,6 +8,9 @@ fuer mehrere Standorte nebeneinander.
 
 ## Umfang
 
+- **Entgeltdaten** je Mitarbeiter hinter eigener Berechtigung, einer zweiten
+  Bestaetigung ueber Entra ID und einem Protokoll, das auch jeden *Lese*zugriff
+  festhaelt
 - **Benutzerverwaltung und Berechtigungen**: Konten, Rollen und
   Niederlassungszuordnung in der Oberflaeche; Anmeldung ueber Microsoft Entra ID
   mit einer Passwort-Anmeldung als Notfallweg. Details in
@@ -50,8 +53,8 @@ Nicht enthalten: Dashboard-Import, Shared DB, Synchronisation mit dem vorhandene
 
 Weitere Ansichten in [`docs/screenshots/`](docs/screenshots/): Mitarbeiter,
 Qualifikationsmatrix, Fahrzeuge samt Verlegen-Dialog, Compliance, Vorgaben mit
-Geltungswechsel, Benutzerverwaltung mit Rolleneditor, Anmeldebildschirm und
-Stammdaten. Die Standorte ausser Remscheid sind Platzhalter fuer die
+Geltungswechsel, Entgelt im Mitarbeiterdialog, Benutzerverwaltung mit
+Rolleneditor, Anmeldebildschirm und Stammdaten. Die Standorte ausser Remscheid sind Platzhalter fuer die
 Abbildungen.
 
 Das Erscheinungsbild folgt dem gemeinsamen PDS-Fokus-Styleguide
@@ -62,9 +65,9 @@ Unternehmens-Apps zusammenpasst. Tokens und Bausteine liegen unveraendert in
 ## Tests
 
 ```bash
-cd backend && python -m pytest -q          # 214 Faelle
+cd backend && python -m pytest -q          # 229 Faelle
 cd frontend && npm run typecheck           # Oberflaeche und API-Typen
-cd frontend && npm run e2e                 # 77 E2E-Faelle im Browser
+cd frontend && npm run e2e                 # 80 E2E-Faelle im Browser
 ```
 
 Die End-to-end-Tests fahren das gebaute Frontend gegen ein echtes Backend mit
