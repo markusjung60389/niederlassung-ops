@@ -71,6 +71,104 @@ class PrincipalRead(BaseModel):
     role_name: str | None = None
     permissions: list[str]
     source: str
+    # True while the start password is still in place: the frontend then shows
+    # nothing but the change dialog, and the API refuses everything else.
+    must_change_password: bool = False
+
+
+class LoginRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=200)
+    password: str = Field(min_length=1, max_length=200)
+
+
+class LoginResponse(BaseModel):
+    token: str
+    expires_at: datetime
+    must_change_password: bool
+    display_name: str
+
+
+class PasswordChange(BaseModel):
+    current_password: str = Field(min_length=1, max_length=200)
+    new_password: str = Field(min_length=1, max_length=200)
+
+
+class PasswordSet(BaseModel):
+    """An administrator setting a password for somebody else."""
+
+    new_password: str = Field(min_length=1, max_length=200)
+    # Practically always true: a password somebody else knows is a temporary
+    # one. Only clear it deliberately.
+    must_change: bool = True
+
+
+class RoleRead(BaseModel):
+    id: str
+    name: str
+    description: str | None = None
+    permissions: list[str]
+    system: bool = False
+    user_count: int = 0
+
+
+class RoleCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
+    description: str | None = None
+    permissions: list[str] = Field(default_factory=list)
+
+
+class RoleUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=80)
+    description: str | None = None
+    permissions: list[str] | None = None
+
+
+class PermissionRead(BaseModel):
+    """One entry of the permission catalogue, for the role editor."""
+
+    key: str
+    area: str
+    label: str
+    description: str
+
+
+class UserAdminRead(BaseModel):
+    id: str
+    display_name: str
+    email: str
+    is_active: bool
+    role_id: str | None = None
+    role_name: str | None = None
+    all_branches: bool
+    branch_ids: list[str]
+    # How this account signs in: through Entra ID, with a password, or not yet
+    # at all - which is worth seeing before somebody wonders why they cannot.
+    has_password: bool
+    external_id: str | None = None
+    must_change_password: bool
+    last_login_at: datetime | None = None
+    locked_until: datetime | None = None
+    created_at: datetime
+
+
+class UserCreate(BaseModel):
+    display_name: str = Field(min_length=2, max_length=160)
+    email: str = Field(min_length=3, max_length=200)
+    role_id: str | None = None
+    all_branches: bool = False
+    branch_ids: list[str] = Field(default_factory=list)
+    # Optional: only accounts that need the password login get one.
+    password: str | None = Field(default=None, max_length=200)
+
+
+class UserUpdate(BaseModel):
+    display_name: str | None = Field(default=None, min_length=2, max_length=160)
+    email: str | None = Field(default=None, min_length=3, max_length=200)
+    role_id: str | None = None
+    is_active: bool | None = None
+    all_branches: bool | None = None
+    branch_ids: list[str] | None = None
+    external_id: str | None = None
 
 
 class DevUserRead(BaseModel):

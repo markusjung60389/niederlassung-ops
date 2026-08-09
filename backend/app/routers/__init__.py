@@ -14,6 +14,7 @@ from . import (  # noqa: F401
     incidents,
     personnel,
     sales,
+    users,
 )
 
 ALL_ROUTERS = [
@@ -30,4 +31,5 @@ ALL_ROUTERS = [
     assessments.router,
     audit.router,
     agent.router,
+    users.router,
 ]

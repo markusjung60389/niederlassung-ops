@@ -27,6 +27,10 @@ RULE_READ = "rule:read"
 RULE_WRITE = "rule:write"
 BRANCH_READ = "branch:read"
 BRANCH_WRITE = "branch:write"
+# Accounts, roles and who may see which branch. Held by the administration
+# only: whoever may hand out permissions can hand out every other permission.
+USER_READ = "user:read"
+USER_WRITE = "user:write"
 
 ALL_PERMISSIONS = (
     COMPLIANCE_READ,
@@ -47,10 +51,18 @@ ALL_PERMISSIONS = (
     RULE_WRITE,
     BRANCH_READ,
     BRANCH_WRITE,
+    USER_READ,
+    USER_WRITE,
 )
 
-READ_PERMISSIONS = tuple(item for item in ALL_PERMISSIONS if item.endswith(":read"))
+# The read set a viewer gets. `user:read` is deliberately not in it: the
+# account directory with roles and branch assignments is administration, not
+# something every reader needs.
+READ_PERMISSIONS = tuple(
+    item for item in ALL_PERMISSIONS if item.endswith(":read") and item != USER_READ
+)
 
+ROLE_ADMIN = "Administrator"
 ROLE_AREA_MANAGER = "Bereichsleiter"
 ROLE_BRANCH_MANAGER = "Niederlassungsleiter"
 ROLE_HSE = "HSE / Compliance"
@@ -66,6 +78,9 @@ ROLE_VIEWER = "Betrachter"
 # exception for their own branch is theirs and needs no approval; it is shown
 # to the area manager, who can revoke it.
 ROLE_PRESETS: dict[str, list[str]] = {
+    # The emergency account for the local password login, and the only role
+    # that exists to administer the tool rather than to run a branch.
+    ROLE_ADMIN: [WILDCARD],
     ROLE_AREA_MANAGER: [WILDCARD],
     ROLE_BRANCH_MANAGER: [
         COMPLIANCE_READ,

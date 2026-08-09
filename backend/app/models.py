@@ -36,11 +36,21 @@ class Branch(Base, TimestampMixin):
 
 
 class Role(Base):
+    """A named set of permissions.
+
+    The four presets are `system` roles: they are kept in sync with
+    `permissions.ROLE_PRESETS` on every start, so a new permission reaches
+    existing installations. Roles created in the user administration are not,
+    and can be edited freely.
+    """
+
     __tablename__ = "roles"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
     name: Mapped[str] = mapped_column(String(80), nullable=False, unique=True)
     permissions: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    system: Mapped[bool] = mapped_column(default=False, nullable=False)
 
 
 class User(Base, TimestampMixin):
@@ -55,6 +65,18 @@ class User(Base, TimestampMixin):
     # Set for the area manager: reads and writes reach every branch without an
     # entry in user_branches having to be maintained per branch.
     all_branches: Mapped[bool] = mapped_column(default=False, nullable=False)
+    # --- Local password login (the emergency door beside Entra ID) --------
+    # NULL for every account that signs in through Entra ID, which is the
+    # normal case: no password, no password to leak.
+    password_hash: Mapped[str | None] = mapped_column(String(255))
+    must_change_password: Mapped[bool] = mapped_column(default=False, nullable=False)
+    password_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    failed_login_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Raised on a password change or a deactivation: every session token issued
+    # before then stops being accepted, without a session table to keep clean.
+    token_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     role_id: Mapped[str | None] = mapped_column(ForeignKey("roles.id"))
     role: Mapped[Role | None] = relationship(lazy="joined")
     branch_links: Mapped[list["UserBranch"]] = relationship(

@@ -1,9 +1,16 @@
-from sqlalchemy import select
+import logging
+from datetime import datetime, timezone
+
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from . import catalog, models, permissions
+from . import catalog, models, permissions, security
+from .config import settings
+
+logger = logging.getLogger(__name__)
 
 ROLE_IDS = {
+    permissions.ROLE_ADMIN: "role-admin",
     permissions.ROLE_AREA_MANAGER: "role-area-manager",
     permissions.ROLE_BRANCH_MANAGER: "role-branch-manager",
     permissions.ROLE_HSE: "role-hse",
@@ -11,11 +18,21 @@ ROLE_IDS = {
 }
 
 
+ROLE_DESCRIPTIONS = {
+    permissions.ROLE_ADMIN: "Verwaltung des Werkzeugs: Konten, Rollen, Notfallzugang.",
+    permissions.ROLE_AREA_MANAGER: "Verantwortet mehrere Niederlassungen, setzt Gruppenvorgaben.",
+    permissions.ROLE_BRANCH_MANAGER: "Fuehrt eine Niederlassung; volle Fachrechte vor Ort.",
+    permissions.ROLE_HSE: "Arbeitssicherheit und Compliance ueber die Standorte hinweg.",
+    permissions.ROLE_VIEWER: "Liest mit, aendert nichts.",
+}
+
+
 def seed_roles(db: Session) -> dict[str, models.Role]:
     """Creates the role presets and keeps their permissions in sync.
 
-    Roles are system defined, so the preset is authoritative: a deployment that
+    The presets are system defined and authoritative: a deployment that
     upgrades to a new permission catalogue picks the change up on restart.
+    Roles created in the user administration are not touched here.
     """
     roles: dict[str, models.Role] = {}
     for name, preset in permissions.ROLE_PRESETS.items():
@@ -25,9 +42,53 @@ def seed_roles(db: Session) -> dict[str, models.Role]:
             db.add(role)
         elif sorted(role.permissions or []) != sorted(preset):
             role.permissions = list(preset)
+        role.system = True
+        role.description = role.description or ROLE_DESCRIPTIONS.get(name)
         roles[name] = role
     db.flush()
     return roles
+
+
+def seed_admin_account(db: Session, roles: dict[str, models.Role]) -> None:
+    """Creates the emergency administrator on an installation that has none.
+
+    Not a convenience: without it, an installation whose Entra ID registration
+    is wrong has nobody who can fix it. The start password comes from
+    ADMIN_INITIAL_PASSWORD and has to be replaced at the first login - until
+    then the API answers nothing but the change itself.
+
+    Runs once. An existing account is never given a password back, so removing
+    the local login stays removed.
+    """
+    email = settings.admin_email.strip().lower()
+    existing = db.scalar(select(models.User).where(func.lower(models.User.email) == email))
+    if existing is not None:
+        return
+    # Somebody may have renamed the account; a second administrator is not
+    # created behind their back.
+    if db.scalar(
+        select(func.count(models.User.id)).where(models.User.role_id == ROLE_IDS[permissions.ROLE_ADMIN])
+    ):
+        return
+
+    db.add(
+        models.User(
+            id="user-admin",
+            display_name=settings.admin_display_name,
+            email=email,
+            role=roles[permissions.ROLE_ADMIN],
+            all_branches=True,
+            password_hash=security.hash_password(settings.admin_initial_password),
+            password_changed_at=datetime.now(timezone.utc),
+            must_change_password=True,
+        )
+    )
+    db.flush()
+    logger.warning(
+        "Notfall-Administrator '%s' angelegt. Das Startpasswort muss bei der ersten "
+        "Anmeldung geaendert werden.",
+        email,
+    )
 
 
 def seed_qualification_types(db: Session) -> None:
@@ -167,6 +228,7 @@ def seed_base_data(db: Session) -> None:
             )
 
     db.flush()
+    seed_admin_account(db, roles)
     link_users_to_branches(db)
     link_employees_to_job_roles(db)
     db.commit()

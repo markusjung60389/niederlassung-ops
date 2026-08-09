@@ -1,6 +1,7 @@
 """Authentication and authorisation.
 
-Two modes, selected via ``AUTH_MODE``:
+Three ways in, two of them selected via ``AUTH_MODE`` and one always
+available:
 
 ``dev``
     The caller identifies itself with the ``X-User-Id`` header, which must match
@@ -11,8 +12,15 @@ Two modes, selected via ``AUTH_MODE``:
     token signature is verified against the tenant JWKS, issuer and audience are
     checked, and the app roles in the token are mapped onto local roles.
 
-The Entra ID path is fully implemented but stays dormant until ``AUTH_MODE`` is
-switched to ``azure_ad``; see ``docs/azure-ad-setup.md``.
+``password`` (independent of ``AUTH_MODE``)
+    ``POST /api/auth/login`` issues a signed session token that is sent as a
+    bearer token like any other. This is the emergency door: if Entra ID is
+    unreachable or an app registration is broken, somebody still has to get in.
+    It can be switched off with ``AUTH_PASSWORD_LOGIN_ENABLED=false``.
+
+Under ``azure_ad`` both token kinds arrive in the same header, so the issuer
+decides which validator runs. See ``docs/azure-ad-setup.md`` and
+``docs/benutzerverwaltung.md``.
 """
 
 from __future__ import annotations
@@ -28,7 +36,7 @@ from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import models, permissions
+from . import models, permissions, security
 from .config import settings
 from .database import get_db
 
@@ -56,6 +64,10 @@ class Principal:
     # branch added later is included without anyone remembering to.
     branch_ids: frozenset[str] = frozenset()
     all_branches: bool = False
+    # True while the initial password has not been replaced. Everything except
+    # the change itself is refused, so a handed-over start password cannot
+    # quietly stay in use.
+    must_change_password: bool = False
 
     def has(self, permission: str) -> bool:
         return permissions.grants(self.permissions, permission)
@@ -258,7 +270,25 @@ def _principal_from_user(user: models.User, source: str) -> Principal:
         role_name=role.name if role else None,
         branch_ids=frozenset(link.branch_id for link in user.branch_links),
         all_branches=bool(user.all_branches),
+        must_change_password=bool(user.must_change_password),
     )
+
+
+def _resolve_session_user(db: Session, token: str) -> models.User | None:
+    """Turns a local session token into its account, or None if it is not one."""
+    if not security.looks_like_session(token):
+        return None
+    claims = security.read_session(token)
+    if claims is None:
+        raise _unauthorized("Sitzung abgelaufen oder ungueltig. Bitte neu anmelden.")
+    user = db.get(models.User, str(claims.get("sub")))
+    if user is None or not user.is_active:
+        raise _unauthorized("Sitzung abgelaufen oder ungueltig. Bitte neu anmelden.")
+    # A password change or a deactivation raises the version, which retires
+    # every token handed out before it.
+    if int(claims.get("tv") or 0) != int(user.token_version):
+        raise _unauthorized("Sitzung wurde beendet. Bitte neu anmelden.")
+    return user
 
 
 async def current_principal(
@@ -266,10 +296,23 @@ async def current_principal(
     x_user_id: Annotated[str | None, Header()] = None,
     authorization: Annotated[str | None, Header()] = None,
 ) -> Principal:
+    bearer = (
+        authorization.split(" ", 1)[1].strip()
+        if authorization and authorization.lower().startswith("bearer ")
+        else None
+    )
+
+    # The local session token is checked first and in both modes: it is the way
+    # back in when Entra ID is the thing that is broken.
+    if bearer and settings.auth_password_login_enabled:
+        user = _resolve_session_user(db, bearer)
+        if user is not None:
+            return _principal_from_user(user, "password")
+
     if settings.auth_mode == "azure_ad":
-        if not authorization or not authorization.lower().startswith("bearer "):
+        if not bearer:
             raise _unauthorized("Bearer token required.")
-        claims = await verify_azure_token(authorization.split(" ", 1)[1].strip())
+        claims = await verify_azure_token(bearer)
         return _principal_from_user(_resolve_azure_user(db, claims), "azure-ad")
 
     user_id = x_user_id or settings.auth_dev_default_user_id
@@ -285,11 +328,25 @@ async def current_principal(
 
 CurrentPrincipal = Annotated[Principal, Depends(current_principal)]
 
+# Endpoints that stay reachable while the initial password is still in place -
+# exactly the ones needed to get rid of it.
+PASSWORD_CHANGE_EXEMPT = {
+    "/api/auth/me",
+    "/api/auth/login",
+    "/api/auth/logout",
+    "/api/auth/change-password",
+}
+
 
 def requires(*required: str) -> Callable[[Principal], Principal]:
     """Dependency factory: the caller must hold every listed permission."""
 
     def dependency(principal: CurrentPrincipal) -> Principal:
+        if principal.must_change_password:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Das Startpasswort muss zuerst geaendert werden.",
+            )
         missing = [item for item in required if not principal.has(item)]
         if missing:
             raise HTTPException(

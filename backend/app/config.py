@@ -23,6 +23,22 @@ class Settings(BaseSettings):
     # Optional convenience for local work: used when no X-User-Id header is sent.
     auth_dev_default_user_id: str | None = None
 
+    # --- Local password login ---------------------------------------------
+    # The emergency door: works in both modes, so a broken app registration or
+    # an unreachable Entra ID does not lock everyone out. Switch it off once
+    # Entra ID is proven and nobody needs it any more.
+    auth_password_login_enabled: bool = True
+    # Signs the session tokens of that login. Without one, a random secret is
+    # generated per process and sessions end with a restart - fine locally,
+    # refused in production.
+    auth_session_secret: str | None = None
+    auth_session_hours: int = Field(default=12, ge=1, le=168)
+    # The emergency account, created on first start. The password has to be
+    # changed at the first login before anything else in the API answers.
+    admin_email: str = "admin@ops.local"
+    admin_display_name: str = "Administrator"
+    admin_initial_password: str = "BSchmitt-Ops-2026!"
+
     # --- Microsoft Entra ID (Azure AD) -------------------------------------
     # Prepared but inactive while auth_mode is "dev". See docs/azure-ad-setup.md.
     azure_tenant_id: str | None = None
@@ -129,6 +145,13 @@ class Settings(BaseSettings):
             )
         if self.auth_mode == "azure_ad" and not (self.azure_tenant_id and self.azure_client_id):
             raise ValueError("AUTH_MODE=azure_ad requires AZURE_TENANT_ID and AZURE_CLIENT_ID.")
+        if self.is_production and self.auth_password_login_enabled and not self.auth_session_secret:
+            raise ValueError(
+                "AUTH_SESSION_SECRET must be set in production while the password login is enabled: "
+                "without it every restart invalidates all sessions and the secret differs per replica. "
+                "Generate one with 'python -c \"import secrets; print(secrets.token_urlsafe(48))\"' "
+                "or set AUTH_PASSWORD_LOGIN_ENABLED=false."
+            )
         return self
 
 
