@@ -1,8 +1,9 @@
 # Microsoft Entra ID (Azure AD) - Vorbereitung und Aktivierung
 
-Der Code ist vollstaendig vorhanden und getestet, aber **nicht aktiv**.
-`AUTH_MODE` steht auf `dev`. Dieses Dokument beschreibt, was im Azure-Portal
-angelegt werden muss und welche Schalter danach umgelegt werden.
+Der Code ist vollstaendig vorhanden und getestet, aber **nicht aktiv**:
+`AUTH_MODE` steht auf `dev`. Es fehlt nichts mehr an der Anwendung - nur die
+App-Registrierungen im Mandanten und die Werte dazu. Dieses Dokument beschreibt
+beides, in der Reihenfolge, in der es getan wird.
 
 ## Was bereits implementiert ist
 
@@ -93,19 +94,45 @@ Damit bleiben `owner_user_id` und Audit-Log-Eintraege stabil.
 MSAL ist eingebaut (`@azure/msal-browser`, dynamisch geladen), es ist also nur
 noch eine Frage der Konfiguration. Der Anmeldebildschirm zeigt dann
 *Mit Microsoft anmelden*; Token werden still erneuert und nur bei abgelaufener
-Sitzung mit einem Popup. Build-Variablen:
+Sitzung mit einem Popup.
+
+**Mit dem veroeffentlichten Image (`docker-compose.release.yml`) reicht die
+`.env` und ein Neustart** - kein Neubau. Der Container-Entrypoint schreibt bei
+jedem Start `config.js`, und die Anwendung liest ihre Werte von dort:
 
 ```env
-VITE_AUTH_MODE=azure_ad
-VITE_AZURE_TENANT_ID=<Verzeichnis-(Mandanten)-ID>
-VITE_AZURE_CLIENT_ID=<SPA-CLIENT-ID>
-VITE_AZURE_API_SCOPE=api://<API-CLIENT-ID>/access_as_user
+AUTH_MODE=azure_ad
+AZURE_TENANT_ID=<Verzeichnis-(Mandanten)-ID>
+AZURE_FRONTEND_CLIENT_ID=<SPA-CLIENT-ID>
+AZURE_API_SCOPE=api://<API-CLIENT-ID>/access_as_user
 ```
 
-Ueber Compose sind das `AUTH_MODE`, `AZURE_TENANT_ID`, `AZURE_FRONTEND_CLIENT_ID`
-und `AZURE_API_SCOPE` in der `.env`; sie werden als Build-Args durchgereicht.
-Vite backt sie zur Buildzeit ein — nach einer Aenderung muss das Frontend-Image
-neu gebaut werden. Es sind ausschliesslich oeffentliche Bezeichner, keine Secrets.
+```bash
+docker compose -f docker-compose.release.yml up -d
+```
+
+Nur wer das Image **selbst baut** (`docker-compose.yml`), kann die Werte
+stattdessen als Build-Args einbacken (`VITE_AUTH_MODE`, `VITE_AZURE_TENANT_ID`,
+`VITE_AZURE_CLIENT_ID`, `VITE_AZURE_API_SCOPE`); `config.js` sticht sie zur
+Laufzeit ohnehin. Es sind ausschliesslich oeffentliche Bezeichner, keine
+Secrets - sie stehen im ausgelieferten JavaScript und sollen das auch.
+
+### Reihenfolge beim Umschalten
+
+Backend und Frontend gehoeren in denselben Neustart. Steht das Backend schon auf
+`azure_ad` und das Frontend noch auf `dev`, schickt die Oberflaeche weiter
+`X-User-Id`, bekommt 401 und landet auf dem Anmeldebildschirm - unschoen, aber
+nicht gefaehrlich: die Passwort-Anmeldung funktioniert in beiden Faellen.
+
+Nach dem Umschalten:
+
+- `/api/auth/dev-users` antwortet mit 404, die Identitaetsauswahl oben rechts
+  verschwindet.
+- Ein ueber Entra ID neu angelegtes Konto hat **noch keine Niederlassung** und
+  sieht deshalb nichts. Die Zuordnung passiert nach der ersten Anmeldung unter
+  *Benutzer*. Wer das nicht will, setzt `AZURE_AUTO_PROVISION_USERS=false` und
+  legt die Konten vorher mit derselben E-Mail-Adresse an - sie werden beim
+  ersten Login damit verknuepft.
 
 ## Schritt 5: Pruefen
 
@@ -131,6 +158,12 @@ Ohne P1 greift der Rueckfall ueber `amr`/`auth_time`; dafuer muessen die beiden
 in der API-App-Registrierung unter *Tokenkonfiguration* als optionale Claims
 aktiviert sein. Einzelheiten in
 [`benutzerverwaltung.md`](benutzerverwaltung.md#entgeltdaten-berechtigung-zweiter-faktor-leseprotokoll).
+
+## Zuruecknehmen
+
+`AUTH_MODE=dev` ist zusammen mit `APP_ENV=production` gesperrt, ein
+Zurueckschalten waere also ein Rueckschritt in beidem. Der vorgesehene Weg
+zurueck ist deshalb nicht der Modus, sondern die Tuer daneben:
 
 ## Der Weg zurueck, wenn Entra ID nicht funktioniert
 
@@ -169,6 +202,8 @@ Anmeldung gesetzt. Siehe [`niederlassungen.md`](niederlassungen.md).
 
 - App-Registrierungen anlegen und die IDs setzen (Schritt 1 bis 4). Der Code
   wartet nur noch darauf.
+- Redirect-URI der SPA-Registrierung auf den echten Frontend-Origin setzen -
+  die Anwendung meldet sich per Popup gegen `window.location.origin` an.
 - `AUTH_SESSION_SECRET` setzen - sonst verweigert das Backend in Produktion den
   Start, solange die Passwort-Anmeldung aktiv ist.
 - Startpasswort des Notfallzugangs aendern (passiert bei der ersten Anmeldung
