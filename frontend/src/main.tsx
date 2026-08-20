@@ -57,7 +57,7 @@ import "@fontsource/ibm-plex-mono/500.css";
 import "@fontsource/ibm-plex-mono/600.css";
 import "./styles.css";
 
-const VERSION = "1.2.0";
+const VERSION = "1.2.1";
 const EMPTY_BOOTSTRAP: Bootstrap = { branches: [], users: [], auth_mode: AUTH_MODE, permissions: [] };
 
 /** URL segment for a branch: the short code where there is one. */

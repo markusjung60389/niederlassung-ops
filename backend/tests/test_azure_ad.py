@@ -197,4 +197,49 @@ def test_auto_provisioning_can_be_disabled(client, azure_mode, monkeypatch):
     monkeypatch.setattr(auth_module.settings, "azure_auto_provision_users", False)
     response = client.get("/api/auth/me", headers=bearer(make_token()))
     assert response.status_code == 403
-    assert "auto provisioning is disabled" in response.json()["detail"]
+    # The message names the address the account has to carry - that is the one
+    # thing the administrator needs to know to fix it.
+    assert "entra.test@example.local" in response.json()["detail"]
+    assert "Benutzerverwaltung" in response.json()["detail"]
+
+
+def test_the_e_mail_is_matched_without_regard_to_case(client, azure_mode):
+    """The prepared account and the directory rarely agree on capitals.
+
+    An administrator types the address into a form, Entra ID hands out whatever
+    casing the UPN was configured with. Without this, a prepared account would
+    be skipped - and with provisioning on, a second one would appear beside it.
+    """
+    with SessionLocal() as db:
+        manager = db.get(models.User, MANAGER)
+        email = manager.email
+        assert manager.external_id is None
+        before = db.query(models.User).count()
+
+    shouting = email.upper()
+    assert shouting != email
+    body = client.get("/api/auth/me", headers=bearer(make_token(preferred_username=shouting))).json()
+    assert body["user_id"] == MANAGER
+
+    with SessionLocal() as db:
+        assert db.query(models.User).count() == before
+        assert db.get(models.User, MANAGER).external_id is not None
+
+
+def test_a_prepared_account_keeps_its_role_without_any_role_mapping(client, azure_mode, monkeypatch):
+    """The simple way in: no app roles in the tenant, the role is set here.
+
+    Without a mapping the token carries nothing the application recognises, so
+    the role of the prepared account has to survive the login untouched.
+    """
+    monkeypatch.setattr(auth_module.settings, "azure_role_map", "")
+    monkeypatch.setattr(auth_module.settings, "azure_auto_provision_users", False)
+    with SessionLocal() as db:
+        email = db.get(models.User, MANAGER).email
+
+    body = client.get(
+        "/api/auth/me", headers=bearer(make_token(preferred_username=email, roles=[]))
+    ).json()
+    assert body["user_id"] == MANAGER
+    assert body["role_name"] == "Niederlassungsleiter"
+    assert "compliance:write" in body["permissions"]

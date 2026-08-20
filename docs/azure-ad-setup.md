@@ -1,8 +1,9 @@
 # Microsoft Entra ID (Azure AD) - Vorbereitung und Aktivierung
 
-Der Code ist vollstaendig vorhanden und getestet, aber **nicht aktiv**.
-`AUTH_MODE` steht auf `dev`. Dieses Dokument beschreibt, was im Azure-Portal
-angelegt werden muss und welche Schalter danach umgelegt werden.
+Der Code ist vollstaendig vorhanden und getestet, aber **nicht aktiv**:
+`AUTH_MODE` steht auf `dev`. Es fehlt nichts mehr an der Anwendung - nur die
+App-Registrierungen im Mandanten und die Werte dazu. Dieses Dokument beschreibt
+beides, in der Reihenfolge, in der es getan wird.
 
 ## Was bereits implementiert ist
 
@@ -21,6 +22,40 @@ und laesst sie durch den echten Validierungspfad laufen: gueltige Token, abgelau
 Token, falsche Audience, falscher Issuer, fremder Signaturschluessel, `alg: none`,
 Rollen-Mapping, Provisionierung und Verknuepfung bestehender Konten.
 
+## Zwei Wege, und der einfachere zuerst
+
+Die Rolle kann aus dem Verzeichnis kommen oder aus dieser Anwendung. Das ist
+der einzige Unterschied, und er entscheidet ueber die Haelfte der Portalarbeit.
+
+| | **A: Konten hier pflegen** (empfohlen fuer den Anfang) | **B: Rollen aus Entra ID** |
+| --- | --- | --- |
+| Im Portal noetig | zwei App-Registrierungen | zwei Registrierungen **plus** App-Rollen und Zuweisungen je Person |
+| Rolle kommt aus | der Benutzerverwaltung dieser Anwendung | dem `roles`-Claim des Tokens |
+| Neue Person | Konto anlegen (Name, E-Mail, Rolle, Niederlassung) | Person einer App-Rolle zuweisen **und** Niederlassung hier setzen |
+| Person geht | Konto deaktivieren | Zuweisung entziehen; das Konto bleibt hier stehen |
+| Wer pflegt | die Bereichsleitung, ohne Portalzugang | die IT im Portal |
+| Einstellung | `AZURE_AUTO_PROVISION_USERS=false`, `AZURE_ROLE_MAP` leer | `AZURE_AUTO_PROVISION_USERS=true` mit `AZURE_ROLE_MAP` |
+
+**Weg A** heisst: Sie legen die Person unter *Benutzer* mit ihrer dienstlichen
+E-Mail-Adresse, ihrer Rolle und ihren Niederlassungen an. Sie meldet sich mit
+*Mit Microsoft anmelden* an, das Backend erkennt sie an der Adresse aus dem
+Token, merkt sich dauerhaft ihre Entra-Objekt-ID und laesst sie mit der hier
+gesetzten Rolle herein. App-Rollen, Rollenzuweisungen und `AZURE_ROLE_MAP`
+entfallen vollstaendig - Schritt 1a Punkt 4, Punkt 5 und Schritt 2 koennen Sie
+ueberspringen.
+
+Der Preis: Ein Konto, das es hier nicht gibt, kommt nicht herein - auch wenn
+die Person im Verzeichnis existiert. Genau das ist bei vier Niederlassungen
+und einer ueberschaubaren Zahl von Konten aber eher Vorteil als Aufwand: die
+Liste, wer Zugriff hat, steht dort, wo auch steht, was er darf.
+
+**Zwei Faelle, in denen sich Weg B lohnt:** viele Konten, die ueber
+Gruppenmitgliedschaften kommen und gehen sollen, oder die Vorgabe, dass Zugriff
+ausschliesslich ueber das Verzeichnis vergeben wird. Beides laesst sich
+jederzeit nachtraeglich umstellen - `AZURE_ROLE_MAP` setzen, Provisionierung
+einschalten, fertig; die bestehenden Konten bleiben ueber ihre Objekt-ID
+verknuepft.
+
 ## Schritt 1: App-Registrierungen anlegen
 
 Zwei Registrierungen, weil SPA und API unterschiedliche Token-Typen brauchen.
@@ -31,7 +66,8 @@ Zwei Registrierungen, weil SPA und API unterschiedliche Token-Typen brauchen.
    Konten nur im eigenen Verzeichnis.
 2. **Eine API verfuegbar machen** -> Anwendungs-ID-URI setzen: `api://<API-CLIENT-ID>`.
 3. Bereich hinzufuegen: `access_as_user`, Zustimmung durch Administrator und Benutzer.
-4. **App-Rollen** anlegen (Typ jeweils `Benutzer/Gruppen`):
+4. **App-Rollen** anlegen (Typ jeweils `Benutzer/Gruppen`) - **nur fuer Weg B**,
+   bei Weg A entfaellt dieser Punkt:
 
    | Wert | Anzeigename | Gedacht fuer |
    | --- | --- | --- |
@@ -40,7 +76,8 @@ Zwei Registrierungen, weil SPA und API unterschiedliche Token-Typen brauchen.
    | `OpsHSE` | HSE / Compliance | Compliance und Incidents schreiben, Personal lesen |
    | `OpsViewer` | Betrachter | nur Lesen |
 
-5. Unter **Unternehmensanwendungen** die Benutzer bzw. Gruppen diesen Rollen zuweisen.
+5. Unter **Unternehmensanwendungen** die Benutzer bzw. Gruppen diesen Rollen
+   zuweisen - ebenfalls nur fuer Weg B.
 
 ### 1b. SPA (`Remscheid Ops Frontend`)
 
@@ -50,7 +87,15 @@ Zwei Registrierungen, weil SPA und API unterschiedliche Token-Typen brauchen.
 3. **API-Berechtigungen** -> Meine APIs -> `Remscheid Ops API` -> `access_as_user`,
    danach Administratorzustimmung erteilen.
 
-## Schritt 2: Rollen zuordnen
+## Schritt 2: Rollen zuordnen (nur Weg B)
+
+Bei **Weg A** bleibt `AZURE_ROLE_MAP` leer und
+`AZURE_AUTO_PROVISION_USERS=false`. Die Rolle steht am Konto und ueberlebt jede
+Anmeldung unveraendert; ohne Treffer im Mapping ruehrt das Backend sie nicht an.
+Ein Token ohne bekannte Rolle fuehrt dann nicht zu einem Konto ohne Rechte,
+sondern zu dem Konto, das Sie vorbereitet haben.
+
+
 
 Die Werte der App-Rollen werden auf die Rollennamen der `roles`-Tabelle abgebildet
 (angelegt durch `backend/app/seed.py`):
@@ -71,11 +116,23 @@ gewollt. `AZURE_DEFAULT_ROLE_NAME` kann eine Auffangrolle setzen.
 
 ## Schritt 3: Backend umschalten
 
+Weg A - die Konten stehen in der Anwendung:
+
 ```env
 AUTH_MODE=azure_ad
 AZURE_TENANT_ID=<Verzeichnis-(Mandanten)-ID>
 AZURE_CLIENT_ID=<API-CLIENT-ID>
 AZURE_API_AUDIENCE=api://<API-CLIENT-ID>     # optional, wird sonst abgeleitet
+AZURE_AUTO_PROVISION_USERS=false
+APP_ENV=production
+```
+
+Weg B - die Rollen kommen aus dem Verzeichnis:
+
+```env
+AUTH_MODE=azure_ad
+AZURE_TENANT_ID=<Verzeichnis-(Mandanten)-ID>
+AZURE_CLIENT_ID=<API-CLIENT-ID>
 AZURE_ROLE_MAP=OpsAreaManager=Bereichsleiter,OpsManager=Niederlassungsleiter,OpsHSE=HSE / Compliance,OpsViewer=Betrachter
 AZURE_AUTO_PROVISION_USERS=true
 APP_ENV=production
@@ -85,27 +142,58 @@ Beim Start wird geprueft: `AUTH_MODE=azure_ad` ohne Tenant/Client bricht ab,
 `APP_ENV=production` zusammen mit `AUTH_MODE=dev` ebenfalls.
 
 Bestehende lokale Konten werden beim ersten Login ueber die E-Mail-Adresse
-(`preferred_username`) verknuepft, danach ueber die Entra-Objekt-ID (`oid`).
-Damit bleiben `owner_user_id` und Audit-Log-Eintraege stabil.
+(`preferred_username`) verknuepft, **ohne Ruecksicht auf Gross- und
+Kleinschreibung**, danach ueber die Entra-Objekt-ID (`oid`). Damit bleiben
+`owner_user_id` und Audit-Log-Eintraege stabil, auch wenn die Person spaeter
+heiratet und ihre Adresse wechselt.
+
+Wichtig ist nur, dass die Adresse am Konto dieselbe Person meint wie die im
+Verzeichnis. Passt sie nicht, sagt die Anmeldung das bei abgeschalteter
+Provisionierung im Klartext und nennt die erwartete Adresse.
 
 ## Schritt 4: Frontend umschalten
 
 MSAL ist eingebaut (`@azure/msal-browser`, dynamisch geladen), es ist also nur
 noch eine Frage der Konfiguration. Der Anmeldebildschirm zeigt dann
 *Mit Microsoft anmelden*; Token werden still erneuert und nur bei abgelaufener
-Sitzung mit einem Popup. Build-Variablen:
+Sitzung mit einem Popup.
+
+**Mit dem veroeffentlichten Image (`docker-compose.release.yml`) reicht die
+`.env` und ein Neustart** - kein Neubau. Der Container-Entrypoint schreibt bei
+jedem Start `config.js`, und die Anwendung liest ihre Werte von dort:
 
 ```env
-VITE_AUTH_MODE=azure_ad
-VITE_AZURE_TENANT_ID=<Verzeichnis-(Mandanten)-ID>
-VITE_AZURE_CLIENT_ID=<SPA-CLIENT-ID>
-VITE_AZURE_API_SCOPE=api://<API-CLIENT-ID>/access_as_user
+AUTH_MODE=azure_ad
+AZURE_TENANT_ID=<Verzeichnis-(Mandanten)-ID>
+AZURE_FRONTEND_CLIENT_ID=<SPA-CLIENT-ID>
+AZURE_API_SCOPE=api://<API-CLIENT-ID>/access_as_user
 ```
 
-Ueber Compose sind das `AUTH_MODE`, `AZURE_TENANT_ID`, `AZURE_FRONTEND_CLIENT_ID`
-und `AZURE_API_SCOPE` in der `.env`; sie werden als Build-Args durchgereicht.
-Vite backt sie zur Buildzeit ein — nach einer Aenderung muss das Frontend-Image
-neu gebaut werden. Es sind ausschliesslich oeffentliche Bezeichner, keine Secrets.
+```bash
+docker compose -f docker-compose.release.yml up -d
+```
+
+Nur wer das Image **selbst baut** (`docker-compose.yml`), kann die Werte
+stattdessen als Build-Args einbacken (`VITE_AUTH_MODE`, `VITE_AZURE_TENANT_ID`,
+`VITE_AZURE_CLIENT_ID`, `VITE_AZURE_API_SCOPE`); `config.js` sticht sie zur
+Laufzeit ohnehin. Es sind ausschliesslich oeffentliche Bezeichner, keine
+Secrets - sie stehen im ausgelieferten JavaScript und sollen das auch.
+
+### Reihenfolge beim Umschalten
+
+Backend und Frontend gehoeren in denselben Neustart. Steht das Backend schon auf
+`azure_ad` und das Frontend noch auf `dev`, schickt die Oberflaeche weiter
+`X-User-Id`, bekommt 401 und landet auf dem Anmeldebildschirm - unschoen, aber
+nicht gefaehrlich: die Passwort-Anmeldung funktioniert in beiden Faellen.
+
+Nach dem Umschalten:
+
+- `/api/auth/dev-users` antwortet mit 404, die Identitaetsauswahl oben rechts
+  verschwindet.
+- Bei **Weg B** hat ein neu angelegtes Konto **noch keine Niederlassung** und
+  sieht deshalb nichts; die Zuordnung passiert nach der ersten Anmeldung unter
+  *Benutzer*. Bei **Weg A** stellt sich die Frage nicht: dort ist die
+  Niederlassung schon gesetzt, bevor sich jemand zum ersten Mal anmeldet.
 
 ## Schritt 5: Pruefen
 
@@ -131,6 +219,12 @@ Ohne P1 greift der Rueckfall ueber `amr`/`auth_time`; dafuer muessen die beiden
 in der API-App-Registrierung unter *Tokenkonfiguration* als optionale Claims
 aktiviert sein. Einzelheiten in
 [`benutzerverwaltung.md`](benutzerverwaltung.md#entgeltdaten-berechtigung-zweiter-faktor-leseprotokoll).
+
+## Zuruecknehmen
+
+`AUTH_MODE=dev` ist zusammen mit `APP_ENV=production` gesperrt, ein
+Zurueckschalten waere also ein Rueckschritt in beidem. Der vorgesehene Weg
+zurueck ist deshalb nicht der Modus, sondern die Tuer daneben:
 
 ## Der Weg zurueck, wenn Entra ID nicht funktioniert
 
@@ -169,6 +263,8 @@ Anmeldung gesetzt. Siehe [`niederlassungen.md`](niederlassungen.md).
 
 - App-Registrierungen anlegen und die IDs setzen (Schritt 1 bis 4). Der Code
   wartet nur noch darauf.
+- Redirect-URI der SPA-Registrierung auf den echten Frontend-Origin setzen -
+  die Anwendung meldet sich per Popup gegen `window.location.origin` an.
 - `AUTH_SESSION_SECRET` setzen - sonst verweigert das Backend in Produktion den
   Start, solange die Passwort-Anmeldung aktiv ist.
 - Startpasswort des Notfallzugangs aendern (passiert bei der ersten Anmeldung

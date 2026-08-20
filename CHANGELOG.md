@@ -3,6 +3,32 @@
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 Versionierung nach [Semantic Versioning](https://semver.org/lang/de/).
 
+## [1.2.1] - 2026-08-09
+
+### Behoben
+
+- **Ein vorbereitetes Konto wurde bei der Entra-ID-Anmeldung uebersehen, wenn
+  die E-Mail-Adresse anders geschrieben war.** Die Adresse wird beim Anlegen
+  klein gespeichert, das Verzeichnis liefert `preferred_username` aber in der
+  Schreibweise des UPN. Der Abgleich ignoriert Gross- und Kleinschreibung
+  jetzt. Ohne das wurde die Anmeldung entweder abgewiesen
+  (`AZURE_AUTO_PROVISION_USERS=false`) oder es entstand still ein **zweites**
+  Konto neben dem vorbereiteten.
+- Die Abweisung ohne hinterlegtes Konto nennt jetzt auf Deutsch die erwartete
+  E-Mail-Adresse - die einzige Information, die zum Beheben fehlt.
+
+### Geaendert
+
+- **Zwei Wege zur Entra-ID-Anmeldung dokumentiert**, mit einer Gegenueberstellung
+  in [`docs/azure-ad-setup.md`](docs/azure-ad-setup.md): Konten in der Anwendung
+  vorbereiten (ohne App-Rollen, ohne Rollen-Mapping) oder die Rolle aus dem
+  Verzeichnis beziehen. Der erste Weg spart App-Rollen, Rollenzuweisungen und
+  `AZURE_ROLE_MAP`.
+- Die Anleitung behauptete, das Frontend muesse fuer eine Aenderung der
+  Azure-Werte neu gebaut werden. Das gilt nur fuer selbst gebaute Images; das
+  veroeffentlichte liest sie beim Start aus `config.js`, also genuegen ein
+  Eintrag in der `.env` und ein Neustart.
+
 ## [1.2.0] - 2026-08-09
 
 Mehrere Niederlassungen, Benutzerverwaltung mit Anmeldung ueber Entra ID und
@@ -256,6 +282,7 @@ Erstes Release mit Container-Images auf ghcr.io.
 - Der Worker laeuft als Einzelinstanz ohne Sperren; mehrere Instanzen
   parallel sind nicht vorgesehen.
 
+[1.2.1]: https://github.com/markusjung60389/niederlassung-ops/releases/tag/v1.2.1
 [1.2.0]: https://github.com/markusjung60389/niederlassung-ops/releases/tag/v1.2.0
 [1.1.0]: https://github.com/markusjung60389/niederlassung-ops/releases/tag/v1.1.0
 [1.0.0]: https://github.com/markusjung60389/niederlassung-ops/releases/tag/v1.0.0

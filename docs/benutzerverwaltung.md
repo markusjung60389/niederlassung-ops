@@ -21,6 +21,24 @@ Niederlassungen sechzehn Rollen, die niemand mehr anfasst.
 Tenant-JWKS. Einrichtung Schritt fuer Schritt in
 [`azure-ad-setup.md`](azure-ad-setup.md).
 
+Woher die Rolle kommt, ist dabei eine eigene Entscheidung:
+
+- **Konto hier vorbereiten** (`AZURE_AUTO_PROVISION_USERS=false`, kein
+  `AZURE_ROLE_MAP`): Name, E-Mail, Rolle und Niederlassungen werden unter
+  *Benutzer* gesetzt, die Person meldet sich mit ihrem Firmenkonto an und wird
+  ueber die E-Mail-Adresse erkannt. Im Portal braucht es dann nur die beiden
+  App-Registrierungen - keine App-Rollen, keine Zuweisungen. Der einfachere
+  Weg, solange die Zahl der Konten ueberschaubar ist.
+- **Rolle aus dem Verzeichnis** (`AZURE_ROLE_MAP`, Provisionierung an): Die
+  App-Rolle im Token bestimmt die Rolle hier, das Konto entsteht bei der ersten
+  Anmeldung. Die Niederlassung muss trotzdem hier gesetzt werden - das Verzeichnis
+  weiss nichts von Remscheid.
+
+Die Verknuepfung laeuft beim ersten Login ueber die E-Mail-Adresse (ohne
+Ruecksicht auf Gross- und Kleinschreibung) und danach ueber die
+Entra-Objekt-ID. Wer heiratet und eine neue Adresse bekommt, bleibt damit
+derselbe Datensatz - samt allem, was im Protokoll an ihm haengt.
+
 ### Passwort (der Notfallweg)
 
 Unabhaengig von `AUTH_MODE` verfuegbar, abschaltbar ueber
