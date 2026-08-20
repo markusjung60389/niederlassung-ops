@@ -3,6 +3,81 @@
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 Versionierung nach [Semantic Versioning](https://semver.org/lang/de/).
 
+## [1.2.2] - 2026-08-20
+
+Ergebnis eines Security-Reviews: die Mandantentrennung griff auf den
+Listen-Endpunkten, aber nicht auf den Einzelobjekt-Routen (`GET`/`PATCH`/
+`DELETE .../{id}`). Wer eine ID aus einer anderen Niederlassung kannte oder
+erriet, kam an ihre Daten - lesend, schreibend und loeschend.
+
+### Behoben
+
+- **Mandantentrennung fehlte auf 40+ Einzelobjekt-Routen.** Compliance-Datensaetze,
+  Nachweise, Massnahmen, Vorfaelle, Niederlassungsbewertungen, Mitarbeiter,
+  Qualifikationen, Personalakten-Eintraege, Kunden (`/api/accounts`) und
+  Mitarbeitergespraeche liessen sich per ID ueber Niederlassungsgrenzen hinweg
+  lesen, aendern und loeschen, sobald die aufrufende Person irgendeine
+  Schreib- oder Leseberechtigung fuer den jeweiligen Bereich hatte - unabhaengig
+  davon, ob die betroffene Niederlassung zu ihrem Zustaendigkeitsbereich
+  gehoerte. Ein neuer `ensure_visible`-Baustein (404 statt 403, damit die
+  Existenz einer fremden ID nicht bestaetigt wird) schliesst die Luecke; die
+  generische CRUD-Fabrik (`app/crud.py`) unterstuetzt Mandantentrennung jetzt
+  ebenfalls und verweigert, ein Objekt per Aenderung in eine fremde
+  Niederlassung zu verschieben.
+- **Dokumente waren vollstaendig ungescoped.** `/api/documents` listete jedes
+  hochgeladene Dokument aller Niederlassungen, der Download-Endpunkt lieferte
+  den Inhalt - unabhaengig davon, mit welcher Mitarbeiterqualifikation es
+  verknuepft war. Sichtbar ist ein Dokument jetzt nur noch fuer die
+  hochladende Person und fuer alle mit Zugriff auf den Mitarbeiter, dessen
+  Qualifikation es belegt.
+- **Das Audit-Log war nicht nach Niederlassung gefiltert**, und `audit:read`
+  stand im Berechtigungspaket der reinen Lesevers­ion (Betrachter). Eine
+  Leseberechtigung fuer die eigene Niederlassung reichte, um die
+  Loeschprotokolle - vollstaendige Datenschnappschuesse inklusive
+  Aufenthaltstitel und arbeitsmedizinischer Termine - jeder anderen
+  Niederlassung einzusehen. Das Log traegt jetzt eine `branch_id` (neue
+  Spalte, per Migration ergaenzt, bestehende Eintraege bleiben `NULL` und
+  damit wie bisher sichtbar); niederlassungsuebergreifende Ereignisse (Rollen,
+  Katalogeintraege, Benutzerkonten) bleiben fuer alle mit `audit:read`
+  einsehbar, niederlassungsgebundene nur fuer die jeweils Zustaendigen.
+  `audit:read` ist aus dem Betrachter-Paket entfernt.
+- **Der gruppenweite Katalog liess sich von jeder Niederlassungsleitung
+  aendern.** `guard_rule_scope` war auf `job-role-requirements` angewendet,
+  fehlte aber bei `qualification-types` und `job-roles` (Aendern/Loeschen) -
+  eine Niederlassungsleitung konnte damit eine Qualifikationsvorgabe oder
+  Funktion fuer alle Niederlassungen aendern oder loeschen. Betrifft nur
+  `rule:write`, das bei der Bereichsleitung liegt.
+- **`/api/hermes/context/branches/{id}` hatte keine Zugriffspruefung** und war
+  durch einen zweiten Fehler zufaellig verdeckt: der Aufruf von
+  `build_reminders` uebergab die Niederlassungs-ID als einzelnen String statt
+  als Liste, was die Abfrage bei jedem Aufruf mit HTTP 500 abbrechen liess.
+  Beides behoben; der Endpunkt liefert jetzt nur die eigene Niederlassung und
+  antwortet wieder mit 200.
+- **Anmeldeversuche mit unbekannter Adresse liefen messbar schneller
+  durch** als solche mit existierendem Konto (der Passwort-Hash-Vergleich lief
+  nur, wenn ein Konto gefunden wurde), sodass sich Konten trotz identischer
+  Fehlermeldung per Antwortzeit auflisten liessen. Ein fixer Vergleichshash
+  fuellt jetzt den fehlenden Fall auf.
+- **Beide Container liefen als root.** Backend und Frontend-Image laufen jetzt
+  unter einem eigenen, unprivilegierten Benutzer.
+- Fehlende Sicherheits-Header (`X-Content-Type-Options`, `X-Frame-Options`,
+  `Referrer-Policy`, `Permissions-Policy`, `Content-Security-Policy`) im
+  Frontend-Image ergaenzt; die CSP wird beim Containerstart passend zur
+  konfigurierten API- und Azure-AD-Adresse geschrieben.
+- `/docs`, `/redoc` und `/openapi.json` sind unter `APP_ENV=production`
+  deaktiviert; `/api/meta` verlangt jetzt eine Anmeldung (`/health` bleibt wie
+  vorgesehen offen fuer den Container-Healthcheck).
+
+### Bekannt, nicht behoben
+
+- Die Vertriebs-Endpunkte (`/api/opportunities`, `/api/projects`,
+  `/api/project-sites`, `/api/service-contracts`, `/api/service-events`,
+  `/api/tasks`) sind weiterhin nicht nach Niederlassung gescoped - anders als
+  `/api/accounts`, das jetzt gescoped ist. Vertrieb ist seit v1.2.0 aus der
+  Oberflaeche entfernt, die API bleibt aber ueber Werkzeuge wie `curl`
+  erreichbar. Empfehlung: entweder vor einer Reaktivierung nachziehen oder die
+  Routen bis dahin ganz entfernen.
+
 ## [1.2.1] - 2026-08-09
 
 ### Behoben

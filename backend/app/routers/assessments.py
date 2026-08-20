@@ -7,14 +7,19 @@ from sqlalchemy.orm import Session
 from .. import models, permissions, schemas
 from ..auth import Principal, requires
 from ..database import get_db
-from ..deps import audit, branch_filter, ensure_ref, get_or_404, snapshot
+from ..deps import audit, branch_filter, ensure_branch_access, ensure_ref, ensure_visible, get_or_404, snapshot
 from ..serializers import assessment_read
 
 router = APIRouter(tags=["assessments"])
 
 WriteDep = Annotated[Principal, Depends(requires(permissions.ASSESSMENT_WRITE))]
 ReadDep = Annotated[Principal, Depends(requires(permissions.ASSESSMENT_READ))]
-read_dependency = Depends(requires(permissions.ASSESSMENT_READ))
+
+
+def _visible_assessment(db: Session, principal: Principal, assessment_id: str) -> models.BranchAssessment:
+    assessment = get_or_404(db, models.BranchAssessment, assessment_id, "Assessment")
+    ensure_visible(principal, [assessment.branch_id], "Assessment")
+    return assessment
 
 
 @router.get(
@@ -37,11 +42,20 @@ def create_branch_assessment(
     payload: schemas.BranchAssessmentCreate, principal: WriteDep, db: Session = Depends(get_db)
 ) -> schemas.BranchAssessmentRead:
     ensure_ref(db, models.Branch, payload.branch_id, "branch_id")
+    ensure_branch_access(principal, payload.branch_id)
     ensure_ref(db, models.User, payload.created_by, "created_by")
     assessment = models.BranchAssessment(**payload.model_dump())
     db.add(assessment)
     db.flush()
-    audit(db, "branch_assessment", assessment.id, "created", payload.model_dump(mode="json"), principal)
+    audit(
+        db,
+        "branch_assessment",
+        assessment.id,
+        "created",
+        payload.model_dump(mode="json"),
+        principal,
+        branch_id=assessment.branch_id,
+    )
     db.commit()
     db.refresh(assessment)
     return assessment_read(assessment)
@@ -50,10 +64,11 @@ def create_branch_assessment(
 @router.get(
     "/api/branch-assessments/{assessment_id}",
     response_model=schemas.BranchAssessmentRead,
-    dependencies=[read_dependency],
 )
-def get_branch_assessment(assessment_id: str, db: Session = Depends(get_db)) -> schemas.BranchAssessmentRead:
-    return assessment_read(get_or_404(db, models.BranchAssessment, assessment_id, "Assessment"))
+def get_branch_assessment(
+    assessment_id: str, principal: ReadDep, db: Session = Depends(get_db)
+) -> schemas.BranchAssessmentRead:
+    return assessment_read(_visible_assessment(db, principal, assessment_id))
 
 
 @router.patch("/api/branch-assessments/{assessment_id}", response_model=schemas.BranchAssessmentRead)
@@ -63,13 +78,19 @@ def update_branch_assessment(
     principal: WriteDep,
     db: Session = Depends(get_db),
 ) -> schemas.BranchAssessmentRead:
-    assessment = get_or_404(db, models.BranchAssessment, assessment_id, "Assessment")
+    assessment = _visible_assessment(db, principal, assessment_id)
     changes = payload.model_dump(exclude_unset=True)
     before = {field: getattr(assessment, field) for field in changes}
     for field, value in changes.items():
         setattr(assessment, field, value)
     audit(
-        db, "branch_assessment", assessment_id, "updated", {"before": before, "after": changes}, principal
+        db,
+        "branch_assessment",
+        assessment_id,
+        "updated",
+        {"before": before, "after": changes},
+        principal,
+        branch_id=assessment.branch_id,
     )
     db.commit()
     db.refresh(assessment)
@@ -80,8 +101,16 @@ def update_branch_assessment(
 def delete_branch_assessment(
     assessment_id: str, principal: WriteDep, db: Session = Depends(get_db)
 ) -> Response:
-    assessment = get_or_404(db, models.BranchAssessment, assessment_id, "Assessment")
-    audit(db, "branch_assessment", assessment_id, "deleted", snapshot(assessment), principal)
+    assessment = _visible_assessment(db, principal, assessment_id)
+    audit(
+        db,
+        "branch_assessment",
+        assessment_id,
+        "deleted",
+        snapshot(assessment),
+        principal,
+        branch_id=assessment.branch_id,
+    )
     db.delete(assessment)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -61,7 +61,12 @@ def login(payload: schemas.LoginRequest, db: Session = Depends(get_db)) -> schem
             detail=f"Zu viele Fehlversuche. Bitte in {minutes} Minuten erneut versuchen.",
         )
 
-    if user is None or not user.is_active or not security.verify_password(payload.password, user.password_hash):
+    # Runs the same scrypt cost whether or not the account exists, so response
+    # time cannot be used to enumerate addresses.
+    password_ok = security.verify_password(
+        payload.password, user.password_hash if user is not None else security.DUMMY_HASH
+    )
+    if user is None or not user.is_active or not password_ok:
         if user is not None:
             user.failed_login_count = (user.failed_login_count or 0) + 1
             if user.failed_login_count >= security.MAX_FAILED_LOGINS:

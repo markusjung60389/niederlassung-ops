@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -9,7 +9,15 @@ from sqlalchemy.orm import Session, selectinload
 from .. import models, permissions, schemas, storage
 from ..auth import Principal, requires
 from ..database import get_db
-from ..deps import audit, branch_filter, ensure_branch_access, ensure_ref, get_or_404, snapshot
+from ..deps import (
+    audit,
+    branch_filter,
+    ensure_branch_access,
+    ensure_ref,
+    ensure_visible,
+    get_or_404,
+    snapshot,
+)
 from ..jobs import schedule_next_cycle
 from ..serializers import action_read, load_record, record_read
 
@@ -17,7 +25,12 @@ router = APIRouter(tags=["compliance"])
 
 WriteDep = Annotated[Principal, Depends(requires(permissions.COMPLIANCE_WRITE))]
 ReadDep = Annotated[Principal, Depends(requires(permissions.COMPLIANCE_READ))]
-read_dependency = Depends(requires(permissions.COMPLIANCE_READ))
+
+
+def _visible_record(db: Session, principal: Principal, record_id: str) -> models.ComplianceRecord:
+    record = load_record(db, record_id)
+    ensure_visible(principal, [record.branch_id], "Compliance record")
+    return record
 
 
 # --------------------------------------------------------------------------
@@ -60,13 +73,22 @@ def create_compliance_record(
     payload: schemas.ComplianceRecordCreate, principal: WriteDep, db: Session = Depends(get_db)
 ) -> schemas.ComplianceRecordRead:
     ensure_ref(db, models.Branch, payload.branch_id, "branch_id")
+    ensure_branch_access(principal, payload.branch_id)
     ensure_ref(db, models.User, payload.owner_user_id, "owner_user_id")
     ensure_ref(db, models.User, payload.approved_by, "approved_by")
     record = models.ComplianceRecord(**payload.model_dump())
     schedule_next_cycle(record)
     db.add(record)
     db.flush()
-    audit(db, "compliance_record", record.id, "created", payload.model_dump(mode="json"), principal)
+    audit(
+        db,
+        "compliance_record",
+        record.id,
+        "created",
+        payload.model_dump(mode="json"),
+        principal,
+        branch_id=record.branch_id,
+    )
     db.commit()
     db.refresh(record)
     return record_read(record)
@@ -75,10 +97,11 @@ def create_compliance_record(
 @router.get(
     "/api/compliance-records/{record_id}",
     response_model=schemas.ComplianceRecordRead,
-    dependencies=[read_dependency],
 )
-def get_compliance_record(record_id: str, db: Session = Depends(get_db)) -> schemas.ComplianceRecordRead:
-    return record_read(load_record(db, record_id))
+def get_compliance_record(
+    record_id: str, principal: ReadDep, db: Session = Depends(get_db)
+) -> schemas.ComplianceRecordRead:
+    return record_read(_visible_record(db, principal, record_id))
 
 
 @router.patch("/api/compliance-records/{record_id}", response_model=schemas.ComplianceRecordRead)
@@ -88,7 +111,7 @@ def update_compliance_record(
     principal: WriteDep,
     db: Session = Depends(get_db),
 ) -> schemas.ComplianceRecordRead:
-    record = load_record(db, record_id)
+    record = _visible_record(db, principal, record_id)
     changes = payload.model_dump(exclude_unset=True)
     ensure_ref(db, models.User, changes.get("owner_user_id"), "owner_user_id")
     ensure_ref(db, models.User, changes.get("approved_by"), "approved_by")
@@ -110,6 +133,7 @@ def update_compliance_record(
         "updated",
         {"before": before, "after": payload.model_dump(mode="json", exclude_unset=True)},
         principal,
+        branch_id=record.branch_id,
     )
     db.commit()
     return record_read(load_record(db, record_id))
@@ -119,11 +143,11 @@ def update_compliance_record(
 def delete_compliance_record(
     record_id: str, principal: WriteDep, db: Session = Depends(get_db)
 ) -> Response:
-    record = load_record(db, record_id)
+    record = _visible_record(db, principal, record_id)
     payload = snapshot(record)
     payload["evidence"] = [snapshot(item) for item in record.evidence]
     payload["actions"] = [snapshot(item) for item in record.actions]
-    audit(db, "compliance_record", record_id, "deleted", payload, principal)
+    audit(db, "compliance_record", record_id, "deleted", payload, principal, branch_id=record.branch_id)
 
     # Evidence and actions belong to the record and go with it; the audit entry
     # above keeps the full contents.
@@ -165,8 +189,8 @@ def add_evidence(
     The storage path is generated server-side; it was previously supplied by the
     client and pointed at files that never existed.
     """
-    if not db.get(models.ComplianceRecord, record_id):
-        raise HTTPException(status_code=404, detail="Compliance record not found")
+    record = get_or_404(db, models.ComplianceRecord, record_id, "Compliance record")
+    ensure_visible(principal, [record.branch_id], "Compliance record")
 
     metadata = schemas.ComplianceEvidenceCreate(
         evidence_type=evidence_type,
@@ -199,15 +223,24 @@ def add_evidence(
         "evidence_added",
         {"evidence_id": evidence.id, "file_name": stored.file_name, "size_bytes": stored.size_bytes},
         principal,
+        branch_id=record.branch_id,
     )
     db.commit()
     db.refresh(evidence)
     return evidence
 
 
-@router.get("/api/evidence/{evidence_id}/download", dependencies=[read_dependency])
-def download_evidence(evidence_id: str, db: Session = Depends(get_db)) -> FileResponse:
+def _visible_evidence(db: Session, principal: Principal, evidence_id: str) -> models.ComplianceEvidence:
     evidence = get_or_404(db, models.ComplianceEvidence, evidence_id, "Evidence")
+    ensure_visible(principal, [evidence.record.branch_id], "Evidence")
+    return evidence
+
+
+@router.get("/api/evidence/{evidence_id}/download")
+def download_evidence(
+    evidence_id: str, principal: ReadDep, db: Session = Depends(get_db)
+) -> FileResponse:
+    evidence = _visible_evidence(db, principal, evidence_id)
     path = storage.resolve(evidence.storage_path)
     return FileResponse(
         path,
@@ -218,8 +251,16 @@ def download_evidence(evidence_id: str, db: Session = Depends(get_db)) -> FileRe
 
 @router.delete("/api/evidence/{evidence_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_evidence(evidence_id: str, principal: WriteDep, db: Session = Depends(get_db)) -> Response:
-    evidence = get_or_404(db, models.ComplianceEvidence, evidence_id, "Evidence")
-    audit(db, "compliance_record", evidence.compliance_record_id, "evidence_deleted", snapshot(evidence), principal)
+    evidence = _visible_evidence(db, principal, evidence_id)
+    audit(
+        db,
+        "compliance_record",
+        evidence.compliance_record_id,
+        "evidence_deleted",
+        snapshot(evidence),
+        principal,
+        branch_id=evidence.record.branch_id,
+    )
     storage.delete(evidence.storage_path)
     db.delete(evidence)
     db.commit()
@@ -240,13 +281,21 @@ def add_action(
     principal: WriteDep,
     db: Session = Depends(get_db),
 ) -> schemas.ComplianceActionRead:
-    if not db.get(models.ComplianceRecord, record_id):
-        raise HTTPException(status_code=404, detail="Compliance record not found")
+    record = get_or_404(db, models.ComplianceRecord, record_id, "Compliance record")
+    ensure_visible(principal, [record.branch_id], "Compliance record")
     ensure_ref(db, models.User, payload.owner_user_id, "owner_user_id")
     action = models.ComplianceAction(compliance_record_id=record_id, **payload.model_dump())
     db.add(action)
     db.flush()
-    audit(db, "compliance_record", record_id, "action_added", payload.model_dump(mode="json"), principal)
+    audit(
+        db,
+        "compliance_record",
+        record_id,
+        "action_added",
+        payload.model_dump(mode="json"),
+        principal,
+        branch_id=record.branch_id,
+    )
     db.commit()
     db.refresh(action)
     return action_read(action)
@@ -276,6 +325,12 @@ def list_actions(
     return [action_read(action) for action in actions]
 
 
+def _visible_action(db: Session, principal: Principal, action_id: str) -> models.ComplianceAction:
+    action = get_or_404(db, models.ComplianceAction, action_id, "Action")
+    ensure_visible(principal, [action.record.branch_id], "Action")
+    return action
+
+
 @router.patch("/api/actions/{action_id}", response_model=schemas.ComplianceActionRead)
 def update_action(
     action_id: str,
@@ -283,7 +338,7 @@ def update_action(
     principal: WriteDep,
     db: Session = Depends(get_db),
 ) -> schemas.ComplianceActionRead:
-    action = get_or_404(db, models.ComplianceAction, action_id, "Action")
+    action = _visible_action(db, principal, action_id)
     changes = payload.model_dump(exclude_unset=True)
     ensure_ref(db, models.User, changes.get("owner_user_id"), "owner_user_id")
     for field, value in changes.items():
@@ -297,6 +352,7 @@ def update_action(
         "updated",
         payload.model_dump(mode="json", exclude_unset=True),
         principal,
+        branch_id=action.record.branch_id,
     )
     db.commit()
     db.refresh(action)
@@ -305,8 +361,8 @@ def update_action(
 
 @router.delete("/api/actions/{action_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_action(action_id: str, principal: WriteDep, db: Session = Depends(get_db)) -> Response:
-    action = get_or_404(db, models.ComplianceAction, action_id, "Action")
-    audit(db, "compliance_action", action_id, "deleted", snapshot(action), principal)
+    action = _visible_action(db, principal, action_id)
+    audit(db, "compliance_action", action_id, "deleted", snapshot(action), principal, branch_id=action.record.branch_id)
     db.delete(action)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

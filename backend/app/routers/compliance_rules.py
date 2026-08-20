@@ -310,6 +310,7 @@ def preview_scope_change(
 ) -> schemas.ScopeChangePreview:
     """What the change would do, in branch names, before it does it."""
     rule = _load_rule(db, rule_id)
+    guard_rule_scope(principal, rule.branch_id)
     creates, detaches, unchanged = _scope_plan(db, rule, principal, payload.branch_id)
     return schemas.ScopeChangePreview(
         creates_in=[branch.name for branch in creates],

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, selectinload
 from .. import models, permissions, schemas, serializers
 from ..auth import CurrentPrincipal, Principal, requires
 from ..database import get_db
-from ..deps import branch_filter
+from ..deps import branch_filter, ensure_branch_access
 from ..domain import DUE_SOON_DAYS, is_overdue, needs_attention, today_local, within_days
 from ..readiness import (
     BLOCKED,
@@ -189,15 +189,21 @@ def list_reminders(
 @router.get(
     "/api/hermes/context/branches/{branch_id}",
     response_model=schemas.HermesBranchContext,
-    dependencies=[Depends(requires(permissions.COMPLIANCE_READ, permissions.PERSONNEL_READ))],
     tags=["hermes"],
 )
-def hermes_branch_context(branch_id: str, db: Session = Depends(get_db)) -> schemas.HermesBranchContext:
+def hermes_branch_context(
+    branch_id: str,
+    principal: Annotated[
+        Principal, Depends(requires(permissions.COMPLIANCE_READ, permissions.PERSONNEL_READ))
+    ],
+    db: Session = Depends(get_db),
+) -> schemas.HermesBranchContext:
     from ..serializers import assessment_read, employee_read, vehicle_read
 
     branch = db.get(models.Branch, branch_id)
     if not branch:
         raise HTTPException(status_code=404, detail="Branch not found")
+    ensure_branch_access(principal, branch_id)
     latest_assessment = db.scalar(
         select(models.BranchAssessment)
         .where(models.BranchAssessment.branch_id == branch_id)
@@ -235,7 +241,7 @@ def hermes_branch_context(branch_id: str, db: Session = Depends(get_db)) -> sche
         compliance_records=[record_read(record) for record in records],
         employees=[employee_read(employee) for employee in employees],
         vehicles=[vehicle_read(vehicle) for vehicle in vehicles],
-        reminders=build_reminders(db, branch_id),
+        reminders=build_reminders(db, [branch_id]),
         open_actions=[action_read(action) for action in open_actions],
         incidents=incidents,
     )

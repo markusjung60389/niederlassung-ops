@@ -81,6 +81,14 @@ def hash_password(password: str) -> str:
     return f"scrypt${SCRYPT_N}${SCRYPT_R}${SCRYPT_P}${_b64(salt)}${_b64(derived)}"
 
 
+# A hash of a password nobody has, computed once at import. `verify_password`
+# against this takes the same time as a real check, so a login attempt for an
+# address that does not exist costs the same as one for an address that does -
+# without it, the missing scrypt call made account existence readable from
+# response time alone.
+DUMMY_HASH = hash_password(secrets.token_hex(32))
+
+
 def verify_password(password: str, encoded: str | None) -> bool:
     """Constant-time check against a stored hash.
 

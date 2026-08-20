@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, selectinload
 from .. import crud, models, permissions, schemas, storage
 from ..auth import Principal, requires
 from ..database import get_db
-from ..deps import audit, ensure_branch_access, ensure_ref, get_or_404, guard_children, snapshot
+from ..deps import audit, ensure_branch_access, ensure_ref, ensure_visible, get_or_404, guard_children, snapshot
 from ..domain import add_months
 from ..readiness import load_overrides
 from ..serializers import employee_query, employee_read, profile_read, qualification_read
@@ -17,7 +17,6 @@ router = APIRouter(tags=["personnel"])
 
 WriteDep = Annotated[Principal, Depends(requires(permissions.PERSONNEL_WRITE))]
 ReadDep = Annotated[Principal, Depends(requires(permissions.PERSONNEL_READ))]
-read_dependency = Depends(requires(permissions.PERSONNEL_READ))
 
 
 # --------------------------------------------------------------------------
@@ -57,7 +56,10 @@ def create_employee(
     employee = models.Employee(**payload.model_dump())
     db.add(employee)
     db.flush()
-    audit(db, "employee", employee.id, "created", payload.model_dump(mode="json"), principal)
+    audit(
+        db, "employee", employee.id, "created", payload.model_dump(mode="json"), principal,
+        branch_id=employee.branch_id,
+    )
     db.commit()
     db.refresh(employee)
     return employee_read(employee)
@@ -84,13 +86,17 @@ def update_employee(
     db: Session = Depends(get_db),
 ) -> schemas.EmployeeRead:
     employee = get_or_404(db, models.Employee, employee_id, "Employee")
+    ensure_visible(principal, employee.assigned_branch_ids, "Employee")
     changes = payload.model_dump(exclude_unset=True)
     if "job_role_id" in changes:
         ensure_ref(db, models.JobRole, changes["job_role_id"], "job_role_id")
     before = {field: getattr(employee, field) for field in changes}
     for field, value in changes.items():
         setattr(employee, field, value)
-    audit(db, "employee", employee_id, "updated", {"before": before, "after": changes}, principal)
+    audit(
+        db, "employee", employee_id, "updated", {"before": before, "after": changes}, principal,
+        branch_id=employee.branch_id,
+    )
     db.commit()
     db.refresh(employee)
     return employee_read(employee)
@@ -127,7 +133,10 @@ def assign_to_branch(
     link = models.EmployeeBranch(employee_id=employee_id, branch_id=payload.branch_id, note=payload.note)
     db.add(link)
     db.flush()
-    audit(db, "employee", employee_id, "branch_assigned", payload.model_dump(mode="json"), principal)
+    audit(
+        db, "employee", employee_id, "branch_assigned", payload.model_dump(mode="json"), principal,
+        branch_id=payload.branch_id,
+    )
     db.commit()
     db.refresh(employee)
     return employee_read(employee, None, load_overrides(db))
@@ -143,7 +152,7 @@ def remove_from_branch(
     link = next((item for item in employee.branch_links if item.branch_id == branch_id), None)
     if link is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Deployment not found")
-    audit(db, "employee", employee_id, "branch_removed", snapshot(link), principal)
+    audit(db, "employee", employee_id, "branch_removed", snapshot(link), principal, branch_id=branch_id)
     db.delete(link)
     db.commit()
     db.refresh(employee)
@@ -153,6 +162,7 @@ def remove_from_branch(
 @router.delete("/api/employees/{employee_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_employee(employee_id: str, principal: WriteDep, db: Session = Depends(get_db)) -> Response:
     employee = get_or_404(db, models.Employee, employee_id, "Employee")
+    ensure_visible(principal, employee.assigned_branch_ids, "Employee")
     guard_children(
         db,
         [
@@ -166,7 +176,7 @@ def delete_employee(employee_id: str, principal: WriteDep, db: Session = Depends
     payload["qualifications"] = [snapshot(item) for item in employee.qualifications]
     if employee.profile:
         payload["profile"] = snapshot(employee.profile)
-    audit(db, "employee", employee_id, "deleted", payload, principal)
+    audit(db, "employee", employee_id, "deleted", payload, principal, branch_id=employee.branch_id)
 
     for qualification in employee.qualifications:
         db.delete(qualification)
@@ -212,18 +222,24 @@ def apply_catalogue_defaults(db: Session, values: dict) -> dict:
 @router.get(
     "/api/employee-qualifications",
     response_model=list[schemas.EmployeeQualificationRead],
-    dependencies=[read_dependency],
 )
 def list_qualifications(
-    employee_id: str | None = None, db: Session = Depends(get_db)
+    principal: ReadDep, employee_id: str | None = None, db: Session = Depends(get_db)
 ) -> list[schemas.EmployeeQualificationRead]:
     query = select(models.EmployeeQualification)
     if employee_id:
         query = query.where(models.EmployeeQualification.employee_id == employee_id)
-    return [
-        qualification_read(item)
-        for item in db.scalars(query.order_by(models.EmployeeQualification.valid_until.asc())).all()
-    ]
+    items = db.scalars(query.order_by(models.EmployeeQualification.valid_until.asc())).all()
+    visible_ids = {item.id for item in db.scalars(employee_query(principal.scope())).all()}
+    return [qualification_read(item) for item in items if item.employee_id in visible_ids]
+
+
+def _visible_qualification(
+    db: Session, principal: Principal, qualification_id: str
+) -> models.EmployeeQualification:
+    qualification = get_or_404(db, models.EmployeeQualification, qualification_id, "Qualification")
+    ensure_visible(principal, qualification.employee.assigned_branch_ids, "Qualification")
+    return qualification
 
 
 @router.post("/api/employee-qualifications", response_model=schemas.EmployeeQualificationRead)
@@ -231,6 +247,8 @@ def create_qualification(
     payload: schemas.EmployeeQualificationCreate, principal: WriteDep, db: Session = Depends(get_db)
 ) -> schemas.EmployeeQualificationRead:
     ensure_ref(db, models.Employee, payload.employee_id, "employee_id")
+    employee = db.get(models.Employee, payload.employee_id)
+    ensure_visible(principal, employee.assigned_branch_ids, "Employee")
     ensure_ref(db, models.Document, payload.document_id, "document_id")
     ensure_ref(db, models.QualificationType, payload.qualification_type_id, "qualification_type_id")
     values = apply_catalogue_defaults(db, payload.model_dump())
@@ -238,7 +256,13 @@ def create_qualification(
     db.add(qualification)
     db.flush()
     audit(
-        db, "employee_qualification", qualification.id, "created", payload.model_dump(mode="json"), principal
+        db,
+        "employee_qualification",
+        qualification.id,
+        "created",
+        payload.model_dump(mode="json"),
+        principal,
+        branch_id=employee.branch_id,
     )
     db.commit()
     db.refresh(qualification)
@@ -254,7 +278,7 @@ def update_qualification(
     principal: WriteDep,
     db: Session = Depends(get_db),
 ) -> schemas.EmployeeQualificationRead:
-    qualification = get_or_404(db, models.EmployeeQualification, qualification_id, "Qualification")
+    qualification = _visible_qualification(db, principal, qualification_id)
     changes = payload.model_dump(exclude_unset=True)
     ensure_ref(db, models.Document, changes.get("document_id"), "document_id")
     ensure_ref(db, models.QualificationType, changes.get("qualification_type_id"), "qualification_type_id")
@@ -282,6 +306,7 @@ def update_qualification(
         "updated",
         {"before": before, "after": changes},
         principal,
+        branch_id=qualification.employee.branch_id,
     )
     db.commit()
     db.refresh(qualification)
@@ -294,8 +319,11 @@ def update_qualification(
 def delete_qualification(
     qualification_id: str, principal: WriteDep, db: Session = Depends(get_db)
 ) -> Response:
-    qualification = get_or_404(db, models.EmployeeQualification, qualification_id, "Qualification")
-    audit(db, "employee_qualification", qualification_id, "deleted", snapshot(qualification), principal)
+    qualification = _visible_qualification(db, principal, qualification_id)
+    audit(
+        db, "employee_qualification", qualification_id, "deleted", snapshot(qualification), principal,
+        branch_id=qualification.employee.branch_id,
+    )
     db.delete(qualification)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -311,6 +339,8 @@ def upsert_employee_profile(
     payload: schemas.EmployeeProfileCreate, principal: WriteDep, db: Session = Depends(get_db)
 ) -> schemas.EmployeeProfileRead:
     ensure_ref(db, models.Employee, payload.employee_id, "employee_id")
+    employee = db.get(models.Employee, payload.employee_id)
+    ensure_visible(principal, employee.assigned_branch_ids, "Employee")
     profile = db.scalar(
         select(models.EmployeeProfile).where(models.EmployeeProfile.employee_id == payload.employee_id)
     )
@@ -324,7 +354,10 @@ def upsert_employee_profile(
         db.add(profile)
         action = "created"
     db.flush()
-    audit(db, "employee_profile", profile.id, action, payload.model_dump(mode="json"), principal)
+    audit(
+        db, "employee_profile", profile.id, action, payload.model_dump(mode="json"), principal,
+        branch_id=employee.branch_id,
+    )
     db.commit()
     db.refresh(profile)
     return profile_read(profile)
@@ -335,7 +368,11 @@ def delete_employee_profile(
     profile_id: str, principal: WriteDep, db: Session = Depends(get_db)
 ) -> Response:
     profile = get_or_404(db, models.EmployeeProfile, profile_id, "Profile")
-    audit(db, "employee_profile", profile_id, "deleted", snapshot(profile), principal)
+    ensure_visible(principal, profile.employee.assigned_branch_ids, "Profile")
+    audit(
+        db, "employee_profile", profile_id, "deleted", snapshot(profile), principal,
+        branch_id=profile.employee.branch_id,
+    )
     db.delete(profile)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -361,15 +398,53 @@ crud.register(
         filters={"employee_id": "employee_id"},
         order_by="review_date",
         order_desc=True,
+        branch_of=lambda item: list(item.employee.assigned_branch_ids),
     ),
 )
 
 
-@router.get("/api/documents", response_model=list[schemas.DocumentRead], dependencies=[read_dependency])
+def _visible_document_ids(db: Session, principal: Principal) -> set[str] | None:
+    """`None` means unrestricted. Otherwise: uploaded by the caller, or linked
+    to a qualification of an employee the caller may see.
+
+    `Document` carries no branch of its own - it is raw file storage, attached
+    to an employee only through `EmployeeQualification.document_id`, and often
+    after the file itself was already uploaded. Scoping it this way keeps a
+    file invisible to every other branch the moment it is actually linked,
+    without inventing a branch column a plain upload cannot fill in yet.
+    """
+    scope = principal.scope()
+    if scope is None:
+        return None
+    employee_ids = {item.id for item in db.scalars(employee_query(scope)).all()}
+    linked = db.scalars(
+        select(models.EmployeeQualification.document_id).where(
+            models.EmployeeQualification.employee_id.in_(employee_ids or ["-"]),
+            models.EmployeeQualification.document_id.isnot(None),
+        )
+    ).all()
+    return {*linked, *db.scalars(
+        select(models.Document.id).where(models.Document.uploaded_by == principal.user_id)
+    ).all()}
+
+
+def _visible_document(db: Session, principal: Principal, document_id: str) -> models.Document:
+    document = get_or_404(db, models.Document, document_id, "Document")
+    visible = _visible_document_ids(db, principal)
+    if visible is not None and document_id not in visible:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+    return document
+
+
+@router.get("/api/documents", response_model=list[schemas.DocumentRead])
 def list_documents(
-    limit: Annotated[int, Query(ge=1, le=500)] = 200, db: Session = Depends(get_db)
+    principal: ReadDep, limit: Annotated[int, Query(ge=1, le=500)] = 200, db: Session = Depends(get_db)
 ) -> list[models.Document]:
-    return db.scalars(select(models.Document).order_by(models.Document.created_at.desc()).limit(limit)).all()
+    query = select(models.Document).order_by(models.Document.created_at.desc())
+    visible = _visible_document_ids(db, principal)
+    if visible is not None:
+        query = query.where(models.Document.id.in_(visible or ["-"]))
+    return db.scalars(query.limit(limit)).all()
 
 
 @router.post(
@@ -405,9 +480,11 @@ def upload_document(
     return document
 
 
-@router.get("/api/documents/{document_id}/download", dependencies=[read_dependency])
-def download_document(document_id: str, db: Session = Depends(get_db)) -> FileResponse:
-    document = get_or_404(db, models.Document, document_id, "Document")
+@router.get("/api/documents/{document_id}/download")
+def download_document(
+    document_id: str, principal: ReadDep, db: Session = Depends(get_db)
+) -> FileResponse:
+    document = _visible_document(db, principal, document_id)
     return FileResponse(
         storage.resolve(document.storage_path),
         media_type=document.mime_type or "application/octet-stream",
@@ -417,7 +494,7 @@ def download_document(document_id: str, db: Session = Depends(get_db)) -> FileRe
 
 @router.delete("/api/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_document(document_id: str, principal: WriteDep, db: Session = Depends(get_db)) -> Response:
-    document = get_or_404(db, models.Document, document_id, "Document")
+    document = _visible_document(db, principal, document_id)
     guard_children(
         db, [(models.EmployeeQualification, "document_id", "qualification(s)")], document_id
     )

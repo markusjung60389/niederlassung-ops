@@ -208,6 +208,7 @@ class AuditLogRead(BaseModel):
     actor_user_id: str | None = None
     changes: dict
     created_at: datetime
+    branch_id: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

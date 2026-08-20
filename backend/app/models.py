@@ -402,6 +402,7 @@ class EmployeeReview(Base, TimestampMixin):
     review_date: Mapped[date] = mapped_column(Date, nullable=False)
     summary: Mapped[str] = mapped_column(Text, nullable=False)
     development_goals: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    employee: Mapped[Employee] = relationship()
 
 
 class Account(Base, TimestampMixin):
@@ -630,6 +631,10 @@ class AuditLog(Base):
     actor_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
     changes: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False, index=True)
+    # NULL means group-wide (a role, a catalogue entry, a user account) and
+    # stays visible to everyone with audit:read. Set, it scopes the row the
+    # same way the entity itself is scoped.
+    branch_id: Mapped[str | None] = mapped_column(ForeignKey("branches.id"), index=True)
 
 class BranchAssessment(Base, TimestampMixin):
     __tablename__ = "branch_assessments"
