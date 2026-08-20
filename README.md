@@ -65,7 +65,7 @@ Unternehmens-Apps zusammenpasst. Tokens und Bausteine liegen unveraendert in
 ## Tests
 
 ```bash
-cd backend && python -m pytest -q          # 229 Faelle
+cd backend && python -m pytest -q          # 231 Faelle
 cd frontend && npm run typecheck           # Oberflaeche und API-Typen
 cd frontend && npm run e2e                 # 80 E2E-Faelle im Browser
 ```
@@ -227,7 +227,7 @@ dasselbe Image laeuft daher in jeder Umgebung.
 
 ```bash
 cp .env.example .env          # POSTGRES_PASSWORD, DATABASE_URL, CORS_ALLOW_ORIGINS setzen
-export OPS_IMAGE_TAG=v1.2.0
+export OPS_IMAGE_TAG=v1.2.1
 docker compose -f docker-compose.release.yml pull
 docker compose -f docker-compose.release.yml up -d
 ```

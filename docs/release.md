@@ -116,7 +116,7 @@ Dasselbe Image laeuft damit in Test und Produktion, ohne neu gebaut zu werden.
 ## Upgrade
 
 ```bash
-export OPS_IMAGE_TAG=v1.2.0
+export OPS_IMAGE_TAG=v1.2.1
 docker compose -f docker-compose.release.yml pull
 docker compose -f docker-compose.release.yml up -d
 ```
