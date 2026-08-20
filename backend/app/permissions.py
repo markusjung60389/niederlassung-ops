@@ -63,11 +63,14 @@ ALL_PERMISSIONS = (
 
 # The read set a viewer gets. `user:read` and `salary:read` are deliberately
 # not in it: the account directory is administration, and pay is nobody's
-# business by default - not even read-only.
+# business by default - not even read-only. `audit:read` is held out too: the
+# log carries the full snapshot of whatever it records - permit and health
+# dates included - and a plain read-only role has no business browsing that
+# just because it can read the live records.
 READ_PERMISSIONS = tuple(
     item
     for item in ALL_PERMISSIONS
-    if item.endswith(":read") and item not in {USER_READ, SALARY_READ}
+    if item.endswith(":read") and item not in {USER_READ, SALARY_READ, AUDIT_READ}
 )
 
 ROLE_ADMIN = "Administrator"

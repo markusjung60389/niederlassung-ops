@@ -155,12 +155,26 @@ test.describe("Stammdaten", () => {
   });
 
   test("eine benutzte Qualifikationsart laesst sich nicht entfernen", async ({ page }) => {
-    await gotoAs(page, "stammdaten");
+    // IPAF ist gruppenweit gesaet (keine eigene Niederlassung); nur die
+    // Bereichsleitung darf sie ueberhaupt anfassen, siehe den naechsten Test.
+    await gotoAs(page, "stammdaten", AREA_MANAGER);
     const catalogue = section(page, "Qualifikationsarten");
     await row(catalogue, "IPAF-Bedienerschulung").getByRole("button", { name: /entfernen$/ }).click();
     await dialog(page).getByRole("button", { name: "Entfernen", exact: true }).click();
 
     await expect(main(page).locator(".pds-banner--danger")).toContainText("requirement");
+    await expect(row(catalogue, "IPAF-Bedienerschulung")).toHaveCount(1);
+  });
+
+  test("eine Niederlassungsleitung darf eine gruppenweite Qualifikationsart nicht entfernen", async ({
+    page,
+  }) => {
+    await gotoAs(page, "stammdaten");
+    const catalogue = section(page, "Qualifikationsarten");
+    await row(catalogue, "IPAF-Bedienerschulung").getByRole("button", { name: /entfernen$/ }).click();
+    await dialog(page).getByRole("button", { name: "Entfernen", exact: true }).click();
+
+    await expect(main(page).locator(".pds-banner--danger")).toContainText("rule:write");
     await expect(row(catalogue, "IPAF-Bedienerschulung")).toHaveCount(1);
   });
 });

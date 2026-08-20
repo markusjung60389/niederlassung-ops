@@ -24,6 +24,9 @@ crud.register(
         references={"branch_id": models.Branch, "owner_user_id": models.User},
         filters={"branch_id": "branch_id", "account_type": "account_type"},
         order_by="name",
+        # `branch_id` is nullable (added after the table existed); an
+        # unassigned account stays group-wide, same as before this was added.
+        branch_of=lambda item: [item.branch_id] if item.branch_id else None,
         children=[
             (models.Opportunity, "account_id", "opportunity/opportunities"),
             (models.ServiceContract, "account_id", "service contract(s)"),

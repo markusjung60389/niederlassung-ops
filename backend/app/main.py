@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .auth import CurrentPrincipal
 from .config import settings
 from .database import SessionLocal, current_revision, init_db
 from .routers import ALL_ROUTERS
@@ -12,7 +13,7 @@ from .seed import seed_base_data
 
 logger = logging.getLogger(__name__)
 
-VERSION = "1.2.1"
+VERSION = "1.2.2"
 
 
 @asynccontextmanager
@@ -46,6 +47,11 @@ app = FastAPI(
         "Ops, compliance and branch assessment API. Every /api endpoint requires an "
         "authenticated principal; see docs/azure-ad-setup.md for the identity providers."
     ),
+    # The schema names every endpoint and its shape; fine for development, not
+    # something to publish unauthenticated on a production deployment.
+    docs_url="/docs" if not settings.is_production else None,
+    redoc_url="/redoc" if not settings.is_production else None,
+    openapi_url="/openapi.json" if not settings.is_production else None,
 )
 
 app.add_middleware(
@@ -67,7 +73,8 @@ def health() -> dict:
 
 
 @app.get("/api/meta", tags=["meta"])
-def meta() -> dict:
+def meta(principal: CurrentPrincipal) -> dict:
+    """Behind auth: the schema revision and auth mode are an attacker's map."""
     return {
         "version": VERSION,
         "app_env": settings.app_env,

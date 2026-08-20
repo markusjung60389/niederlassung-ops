@@ -96,9 +96,19 @@ def test_a_branch_manager_cannot_change_the_group_matrix(client):
 
 
 def test_a_qualification_type_in_use_cannot_be_deleted(client):
-    response = client.delete(f"/api/qualification-types/{IPAF}", headers=auth(MANAGER))
+    # IPAF is seeded group-wide (no branch_id); only the area manager may
+    # touch it at all, so the child-guard is exercised with that role.
+    response = client.delete(f"/api/qualification-types/{IPAF}", headers=auth(AREA_MANAGER))
     assert response.status_code == 409
     assert "requirement" in response.json()["detail"]
+
+
+def test_a_branch_manager_cannot_delete_a_group_wide_qualification_type(client):
+    """The group catalogue is the area manager's; a branch manager reaches it
+    for their own branch-local entries only (see the deletion test above)."""
+    response = client.delete(f"/api/qualification-types/{IPAF}", headers=auth(MANAGER))
+    assert response.status_code == 403
+    assert "rule:write" in response.json()["detail"]
 
 
 def test_matrix_shows_only_the_types_some_function_requires(client):
@@ -147,6 +157,16 @@ def test_readers_cannot_change_the_catalogue(client):
 
 def test_a_function_with_employees_cannot_be_deleted(client):
     make_employee_with_role(client)
-    response = client.delete(f"/api/job-roles/{MONTEUR}", headers=auth(MANAGER))
+    # Monteur is seeded group-wide too; same reasoning as the qualification
+    # type above.
+    response = client.delete(f"/api/job-roles/{MONTEUR}", headers=auth(AREA_MANAGER))
     assert response.status_code == 409
     assert "employee" in response.json()["detail"]
+
+
+def test_a_branch_manager_cannot_delete_a_group_wide_job_role(client):
+    """Before this guard, a branch manager could delete a function - and every
+    requirement under it - for every branch, not just their own."""
+    response = client.delete(f"/api/job-roles/{MONTEUR}", headers=auth(MANAGER))
+    assert response.status_code == 403
+    assert "rule:write" in response.json()["detail"]

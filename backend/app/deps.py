@@ -34,6 +34,7 @@ def audit(
     action: str,
     changes: dict,
     principal: Principal | None = None,
+    branch_id: str | None = None,
 ) -> None:
     db.add(
         models.AuditLog(
@@ -42,6 +43,7 @@ def audit(
             action=action,
             actor_user_id=principal.user_id if principal else None,
             changes=jsonable(changes),
+            branch_id=branch_id,
         )
     )
 
@@ -130,3 +132,13 @@ def ensure_branch_access(principal: Principal, branch_id: str | None, label: str
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"No access to {label} '{branch_id}'",
         )
+
+
+def ensure_visible(principal: Principal, branch_ids: Iterable[str], label: str) -> None:
+    """Guards reading or writing a single object outside the caller's scope.
+
+    A 404, not a 403: whether the object exists at all is scoped information
+    too, and a 403 would confirm to an outsider that the id is real.
+    """
+    if not any(principal.may_see(branch_id) for branch_id in branch_ids):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"{label} not found")

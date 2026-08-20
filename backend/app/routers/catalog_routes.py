@@ -126,6 +126,7 @@ def update_qualification_type(
     db: Session = Depends(get_db),
 ) -> schemas.QualificationTypeRead:
     kind = get_or_404(db, models.QualificationType, type_id, "Qualification type")
+    guard_rule_scope(principal, kind.branch_id)
     changes = payload.model_dump(exclude_unset=True)
     before = {field: getattr(kind, field) for field in changes}
     for field, value in changes.items():
@@ -141,6 +142,7 @@ def delete_qualification_type(
     type_id: str, principal: WriteDep, db: Session = Depends(get_db)
 ) -> Response:
     kind = get_or_404(db, models.QualificationType, type_id, "Qualification type")
+    guard_rule_scope(principal, kind.branch_id)
     guard_children(
         db,
         [
@@ -225,7 +227,12 @@ def update_job_role(
     role_id: str, payload: schemas.JobRoleUpdate, principal: WriteDep, db: Session = Depends(get_db)
 ) -> schemas.JobRoleRead:
     role = _load_role(db, role_id)
+    guard_rule_scope(principal, role.branch_id)
     changes = payload.model_dump(exclude_unset=True)
+    if "branch_id" in changes:
+        # Moving a function between group-wide and branch-local is as
+        # sensitive as changing it in place - both ends need the permission.
+        guard_rule_scope(principal, changes["branch_id"])
     before = {field: getattr(role, field) for field in changes}
     for field, value in changes.items():
         setattr(role, field, value)
@@ -238,6 +245,7 @@ def update_job_role(
 @router.delete("/api/job-roles/{role_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_job_role(role_id: str, principal: WriteDep, db: Session = Depends(get_db)) -> Response:
     role = _load_role(db, role_id)
+    guard_rule_scope(principal, role.branch_id)
     guard_children(db, [(models.Employee, "job_role_id", "employee(s)")], role_id)
     payload = snapshot(role)
     payload["requirements"] = [snapshot(item) for item in role.requirements]
