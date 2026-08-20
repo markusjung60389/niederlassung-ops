@@ -22,6 +22,40 @@ und laesst sie durch den echten Validierungspfad laufen: gueltige Token, abgelau
 Token, falsche Audience, falscher Issuer, fremder Signaturschluessel, `alg: none`,
 Rollen-Mapping, Provisionierung und Verknuepfung bestehender Konten.
 
+## Zwei Wege, und der einfachere zuerst
+
+Die Rolle kann aus dem Verzeichnis kommen oder aus dieser Anwendung. Das ist
+der einzige Unterschied, und er entscheidet ueber die Haelfte der Portalarbeit.
+
+| | **A: Konten hier pflegen** (empfohlen fuer den Anfang) | **B: Rollen aus Entra ID** |
+| --- | --- | --- |
+| Im Portal noetig | zwei App-Registrierungen | zwei Registrierungen **plus** App-Rollen und Zuweisungen je Person |
+| Rolle kommt aus | der Benutzerverwaltung dieser Anwendung | dem `roles`-Claim des Tokens |
+| Neue Person | Konto anlegen (Name, E-Mail, Rolle, Niederlassung) | Person einer App-Rolle zuweisen **und** Niederlassung hier setzen |
+| Person geht | Konto deaktivieren | Zuweisung entziehen; das Konto bleibt hier stehen |
+| Wer pflegt | die Bereichsleitung, ohne Portalzugang | die IT im Portal |
+| Einstellung | `AZURE_AUTO_PROVISION_USERS=false`, `AZURE_ROLE_MAP` leer | `AZURE_AUTO_PROVISION_USERS=true` mit `AZURE_ROLE_MAP` |
+
+**Weg A** heisst: Sie legen die Person unter *Benutzer* mit ihrer dienstlichen
+E-Mail-Adresse, ihrer Rolle und ihren Niederlassungen an. Sie meldet sich mit
+*Mit Microsoft anmelden* an, das Backend erkennt sie an der Adresse aus dem
+Token, merkt sich dauerhaft ihre Entra-Objekt-ID und laesst sie mit der hier
+gesetzten Rolle herein. App-Rollen, Rollenzuweisungen und `AZURE_ROLE_MAP`
+entfallen vollstaendig - Schritt 1a Punkt 4, Punkt 5 und Schritt 2 koennen Sie
+ueberspringen.
+
+Der Preis: Ein Konto, das es hier nicht gibt, kommt nicht herein - auch wenn
+die Person im Verzeichnis existiert. Genau das ist bei vier Niederlassungen
+und einer ueberschaubaren Zahl von Konten aber eher Vorteil als Aufwand: die
+Liste, wer Zugriff hat, steht dort, wo auch steht, was er darf.
+
+**Zwei Faelle, in denen sich Weg B lohnt:** viele Konten, die ueber
+Gruppenmitgliedschaften kommen und gehen sollen, oder die Vorgabe, dass Zugriff
+ausschliesslich ueber das Verzeichnis vergeben wird. Beides laesst sich
+jederzeit nachtraeglich umstellen - `AZURE_ROLE_MAP` setzen, Provisionierung
+einschalten, fertig; die bestehenden Konten bleiben ueber ihre Objekt-ID
+verknuepft.
+
 ## Schritt 1: App-Registrierungen anlegen
 
 Zwei Registrierungen, weil SPA und API unterschiedliche Token-Typen brauchen.
@@ -32,7 +66,8 @@ Zwei Registrierungen, weil SPA und API unterschiedliche Token-Typen brauchen.
    Konten nur im eigenen Verzeichnis.
 2. **Eine API verfuegbar machen** -> Anwendungs-ID-URI setzen: `api://<API-CLIENT-ID>`.
 3. Bereich hinzufuegen: `access_as_user`, Zustimmung durch Administrator und Benutzer.
-4. **App-Rollen** anlegen (Typ jeweils `Benutzer/Gruppen`):
+4. **App-Rollen** anlegen (Typ jeweils `Benutzer/Gruppen`) - **nur fuer Weg B**,
+   bei Weg A entfaellt dieser Punkt:
 
    | Wert | Anzeigename | Gedacht fuer |
    | --- | --- | --- |
@@ -41,7 +76,8 @@ Zwei Registrierungen, weil SPA und API unterschiedliche Token-Typen brauchen.
    | `OpsHSE` | HSE / Compliance | Compliance und Incidents schreiben, Personal lesen |
    | `OpsViewer` | Betrachter | nur Lesen |
 
-5. Unter **Unternehmensanwendungen** die Benutzer bzw. Gruppen diesen Rollen zuweisen.
+5. Unter **Unternehmensanwendungen** die Benutzer bzw. Gruppen diesen Rollen
+   zuweisen - ebenfalls nur fuer Weg B.
 
 ### 1b. SPA (`Remscheid Ops Frontend`)
 
@@ -51,7 +87,15 @@ Zwei Registrierungen, weil SPA und API unterschiedliche Token-Typen brauchen.
 3. **API-Berechtigungen** -> Meine APIs -> `Remscheid Ops API` -> `access_as_user`,
    danach Administratorzustimmung erteilen.
 
-## Schritt 2: Rollen zuordnen
+## Schritt 2: Rollen zuordnen (nur Weg B)
+
+Bei **Weg A** bleibt `AZURE_ROLE_MAP` leer und
+`AZURE_AUTO_PROVISION_USERS=false`. Die Rolle steht am Konto und ueberlebt jede
+Anmeldung unveraendert; ohne Treffer im Mapping ruehrt das Backend sie nicht an.
+Ein Token ohne bekannte Rolle fuehrt dann nicht zu einem Konto ohne Rechte,
+sondern zu dem Konto, das Sie vorbereitet haben.
+
+
 
 Die Werte der App-Rollen werden auf die Rollennamen der `roles`-Tabelle abgebildet
 (angelegt durch `backend/app/seed.py`):
@@ -72,11 +116,23 @@ gewollt. `AZURE_DEFAULT_ROLE_NAME` kann eine Auffangrolle setzen.
 
 ## Schritt 3: Backend umschalten
 
+Weg A - die Konten stehen in der Anwendung:
+
 ```env
 AUTH_MODE=azure_ad
 AZURE_TENANT_ID=<Verzeichnis-(Mandanten)-ID>
 AZURE_CLIENT_ID=<API-CLIENT-ID>
 AZURE_API_AUDIENCE=api://<API-CLIENT-ID>     # optional, wird sonst abgeleitet
+AZURE_AUTO_PROVISION_USERS=false
+APP_ENV=production
+```
+
+Weg B - die Rollen kommen aus dem Verzeichnis:
+
+```env
+AUTH_MODE=azure_ad
+AZURE_TENANT_ID=<Verzeichnis-(Mandanten)-ID>
+AZURE_CLIENT_ID=<API-CLIENT-ID>
 AZURE_ROLE_MAP=OpsAreaManager=Bereichsleiter,OpsManager=Niederlassungsleiter,OpsHSE=HSE / Compliance,OpsViewer=Betrachter
 AZURE_AUTO_PROVISION_USERS=true
 APP_ENV=production
@@ -86,8 +142,14 @@ Beim Start wird geprueft: `AUTH_MODE=azure_ad` ohne Tenant/Client bricht ab,
 `APP_ENV=production` zusammen mit `AUTH_MODE=dev` ebenfalls.
 
 Bestehende lokale Konten werden beim ersten Login ueber die E-Mail-Adresse
-(`preferred_username`) verknuepft, danach ueber die Entra-Objekt-ID (`oid`).
-Damit bleiben `owner_user_id` und Audit-Log-Eintraege stabil.
+(`preferred_username`) verknuepft, **ohne Ruecksicht auf Gross- und
+Kleinschreibung**, danach ueber die Entra-Objekt-ID (`oid`). Damit bleiben
+`owner_user_id` und Audit-Log-Eintraege stabil, auch wenn die Person spaeter
+heiratet und ihre Adresse wechselt.
+
+Wichtig ist nur, dass die Adresse am Konto dieselbe Person meint wie die im
+Verzeichnis. Passt sie nicht, sagt die Anmeldung das bei abgeschalteter
+Provisionierung im Klartext und nennt die erwartete Adresse.
 
 ## Schritt 4: Frontend umschalten
 
@@ -128,11 +190,10 @@ Nach dem Umschalten:
 
 - `/api/auth/dev-users` antwortet mit 404, die Identitaetsauswahl oben rechts
   verschwindet.
-- Ein ueber Entra ID neu angelegtes Konto hat **noch keine Niederlassung** und
-  sieht deshalb nichts. Die Zuordnung passiert nach der ersten Anmeldung unter
-  *Benutzer*. Wer das nicht will, setzt `AZURE_AUTO_PROVISION_USERS=false` und
-  legt die Konten vorher mit derselben E-Mail-Adresse an - sie werden beim
-  ersten Login damit verknuepft.
+- Bei **Weg B** hat ein neu angelegtes Konto **noch keine Niederlassung** und
+  sieht deshalb nichts; die Zuordnung passiert nach der ersten Anmeldung unter
+  *Benutzer*. Bei **Weg A** stellt sich die Frage nicht: dort ist die
+  Niederlassung schon gesetzt, bevor sich jemand zum ersten Mal anmeldet.
 
 ## Schritt 5: Pruefen
 

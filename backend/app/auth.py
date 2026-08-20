@@ -34,7 +34,7 @@ from typing import Annotated, Any, Callable
 
 import httpx
 from fastapi import Depends, Header, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from . import models, permissions, security
@@ -224,8 +224,15 @@ def _resolve_azure_user(db: Session, claims: dict[str, Any]) -> models.User:
 
     user = db.scalar(select(models.User).where(models.User.external_id == str(external_id)))
     if user is None and email:
-        # Link a pre-created local account on first login.
-        user = db.scalar(select(models.User).where(models.User.email == email))
+        # Link a pre-created local account on first login. Compared without
+        # regard to case: the account is typed in by an administrator, while
+        # `preferred_username` comes out of the directory with whatever casing
+        # the UPN was configured in. A mismatch there would either refuse the
+        # login or - worse, with provisioning on - quietly create a second
+        # account beside the prepared one.
+        user = db.scalar(
+            select(models.User).where(func.lower(models.User.email) == email.strip().lower())
+        )
         if user is not None:
             user.external_id = str(external_id)
 
@@ -238,14 +245,19 @@ def _resolve_azure_user(db: Session, claims: dict[str, Any]) -> models.User:
         if not settings.azure_auto_provision_users:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="No local account exists for this identity and auto provisioning is disabled.",
+                detail=(
+                    f"Fuer '{email or external_id}' ist kein Konto hinterlegt. "
+                    "Die Benutzerverwaltung legt es mit genau dieser E-Mail-Adresse an; "
+                    "die Anmeldung funktioniert danach sofort."
+                ),
             )
         if not email:
             raise _unauthorized("Bearer token carries no email claim, cannot provision a user.")
         user = models.User(
             external_id=str(external_id),
             display_name=str(display_name),
-            email=str(email),
+            # Stored the way the local login compares it, so both paths agree.
+            email=str(email).strip().lower(),
             role=role,
         )
         db.add(user)
